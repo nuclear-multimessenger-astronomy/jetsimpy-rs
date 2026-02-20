@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  rust-tests:
+    name: Rust Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action/setup@v1
+
+      - name: Run cargo test
+        run: cargo test
+
+  python-tests:
+    name: Python Comparison Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-action/setup@v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          pip install maturin numpy pytest
+
+      - name: Build PyO3 extension
+        run: cd rust && maturin develop --release
+
+      - name: Install jetsimpy-rs Python package
+        run: pip install .
+
+      - name: Install original jetsimpy
+        run: |
+          git clone https://github.com/haowang-astro/jetsimpy.git /tmp/jetsimpy
+          pip install /tmp/jetsimpy
+
+      - name: Run tests
+        run: pytest tests/ -v
