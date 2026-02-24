@@ -10,10 +10,15 @@ use rayon::prelude::*;
 // Post-processing: interpolate isolated zero-valued luminosity points
 // ---------------------------------------------------------------------------
 
-/// Log-log interpolate zero runs in a time-sorted, single-frequency group.
-/// Zeros bounded on both sides by positive values are filled via log-log
-/// interpolation (natural for power-law lightcurves).  Zeros at the
-/// boundaries (leading/trailing) are left untouched.
+/// Log-log interpolate/extrapolate zero runs in a time-sorted,
+/// single-frequency group.
+///
+/// - **Interior zeros** (bounded on both sides by positive values) are filled
+///   via log-log interpolation.
+/// - **Trailing zeros** (positive values on the left only) are filled via
+///   log-log extrapolation from the last two positive points.
+/// - **Leading zeros** (positive values on the right only) are filled via
+///   log-log extrapolation from the first two positive points.
 fn interpolate_sorted_group(results: &mut [f64], times: &[f64]) {
     let n = results.len();
     let mut i = 0;
@@ -29,6 +34,7 @@ fn interpolate_sorted_group(results: &mut [f64], times: &[f64]) {
             let has_right = end < n && results[end] > 0.0;
 
             if has_left && has_right {
+                // Interior: interpolate between the two neighbors
                 let li = start - 1;
                 let ri = end;
                 let log_lum_l = results[li].ln();
@@ -43,7 +49,51 @@ fn interpolate_sorted_group(results: &mut [f64], times: &[f64]) {
                         results[j] = (log_lum_l + frac * (log_lum_r - log_lum_l)).exp();
                     }
                 }
+            } else if has_left && !has_right {
+                // Trailing zeros: extrapolate from last two positive points
+                // Find two distinct positive points before the gap
+                let i2 = start - 1;
+                let mut i1 = i2;
+                while i1 > 0 {
+                    i1 -= 1;
+                    if results[i1] > 0.0 && times[i1] != times[i2] {
+                        break;
+                    }
+                }
+                if i1 < i2 && results[i1] > 0.0 && times[i1] != times[i2] {
+                    let log_t1 = times[i1].ln();
+                    let log_t2 = times[i2].ln();
+                    let log_l1 = results[i1].ln();
+                    let log_l2 = results[i2].ln();
+                    let slope = (log_l2 - log_l1) / (log_t2 - log_t1);
+                    for j in start..end {
+                        let log_val = log_l2 + slope * (times[j].ln() - log_t2);
+                        results[j] = log_val.exp();
+                    }
+                }
+            } else if !has_left && has_right {
+                // Leading zeros: extrapolate from first two positive points
+                let i1 = end;
+                let mut i2 = i1;
+                while i2 + 1 < n {
+                    i2 += 1;
+                    if results[i2] > 0.0 && times[i2] != times[i1] {
+                        break;
+                    }
+                }
+                if i2 > i1 && results[i2] > 0.0 && times[i2] != times[i1] {
+                    let log_t1 = times[i1].ln();
+                    let log_t2 = times[i2].ln();
+                    let log_l1 = results[i1].ln();
+                    let log_l2 = results[i2].ln();
+                    let slope = (log_l2 - log_l1) / (log_t2 - log_t1);
+                    for j in start..end {
+                        let log_val = log_l1 + slope * (times[j].ln() - log_t1);
+                        results[j] = log_val.exp();
+                    }
+                }
             }
+            // If no positive values at all, leave zeros as-is
         } else {
             i += 1;
         }
