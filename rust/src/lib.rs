@@ -148,7 +148,7 @@ fn interpolate_zero_luminosities(results: &mut [f64], t_s: &[f64], nu_s: &[f64])
 }
 
 use jetsimpy_rs::constants::*;
-use jetsimpy_rs::hydro::config::JetConfig;
+use jetsimpy_rs::hydro::config::{JetConfig, SpreadMode};
 use jetsimpy_rs::hydro::sim_box::SimBox;
 use jetsimpy_rs::hydro::interpolate::Interpolator;
 use jetsimpy_rs::hydro::tools::Tool;
@@ -194,7 +194,29 @@ pub struct PyJetConfig {
     #[pyo3(get, set)]
     pub spread: bool,
     #[pyo3(get, set)]
+    pub spread_mode: String,
+    #[pyo3(get, set)]
+    pub theta_c: f64,
+    #[pyo3(get, set)]
     pub cal_level: i32,
+
+    // Reverse shock parameters
+    #[pyo3(get, set)]
+    pub include_reverse_shock: bool,
+    #[pyo3(get, set)]
+    pub sigma: f64,
+    #[pyo3(get, set)]
+    pub eps_e_rs: f64,
+    #[pyo3(get, set)]
+    pub eps_b_rs: f64,
+    #[pyo3(get, set)]
+    pub p_rs: f64,
+    #[pyo3(get, set)]
+    pub t0_injection: f64,
+    #[pyo3(get, set)]
+    pub l_injection: f64,
+    #[pyo3(get, set)]
+    pub m_dot_injection: f64,
 }
 
 #[pymethods]
@@ -215,13 +237,36 @@ impl PyJetConfig {
             rtol: 1e-6,
             cfl: 0.9,
             spread: true,
+            spread_mode: String::new(),
+            theta_c: 0.1,
             cal_level: 1,
+            include_reverse_shock: false,
+            sigma: 0.0,
+            eps_e_rs: 0.1,
+            eps_b_rs: 0.01,
+            p_rs: 2.3,
+            t0_injection: 0.0,
+            l_injection: 0.0,
+            m_dot_injection: 0.0,
         }
     }
 }
 
 impl PyJetConfig {
     fn to_config(&self) -> JetConfig {
+        // Determine spread mode: explicit spread_mode string takes precedence,
+        // otherwise fall back to the bool `spread` flag for backward compat.
+        let spread_mode = if !self.spread_mode.is_empty() {
+            match self.spread_mode.as_str() {
+                "none" => SpreadMode::None,
+                "ode" => SpreadMode::Ode,
+                "pde" => SpreadMode::Pde,
+                _ => if self.spread { SpreadMode::Pde } else { SpreadMode::None },
+            }
+        } else {
+            if self.spread { SpreadMode::Pde } else { SpreadMode::None }
+        };
+
         JetConfig {
             theta_edge: self.theta_edge.clone(),
             eb: self.eb.clone(),
@@ -236,7 +281,17 @@ impl PyJetConfig {
             rtol: self.rtol,
             cfl: self.cfl,
             spread: self.spread,
+            spread_mode,
+            theta_c: self.theta_c,
             cal_level: self.cal_level,
+            include_reverse_shock: self.include_reverse_shock,
+            sigma: self.sigma,
+            eps_e_rs: self.eps_e_rs,
+            eps_b_rs: self.eps_b_rs,
+            p_rs: self.p_rs,
+            t0_injection: self.t0_injection,
+            l_injection: self.l_injection,
+            m_dot_injection: self.m_dot_injection,
         }
     }
 }
@@ -244,12 +299,14 @@ impl PyJetConfig {
 /// Inner data structure that is Send + Sync for rayon.
 struct JetInner {
     ys: Vec<Vec<Vec<f64>>>,
+    ys_rs: Option<Vec<Vec<Vec<f64>>>>,
     ts: Vec<f64>,
     theta: Vec<f64>,
     tool: Tool,
     interpolator: Interpolator,
     eats: EATS,
     afterglow: Afterglow,
+    include_reverse_shock: bool,
 }
 
 // SAFETY: JetInner only contains owned, immutable-after-construction data.
@@ -278,9 +335,16 @@ impl PyJet {
         let mut sim_box = SimBox::new(&self.config);
         sim_box.solve_pde();
 
+        // Solve reverse shock if enabled
+        if self.config.include_reverse_shock {
+            sim_box.solve_reverse_shock();
+        }
+
         let theta = sim_box.get_theta().clone();
         let ts = sim_box.ts.clone();
         let ys = sim_box.ys.clone();
+        let ys_rs = sim_box.ys_rs.clone();
+        let include_rs = self.config.include_reverse_shock;
         let tool = Tool::new(
             self.config.nwind,
             self.config.nism,
@@ -294,12 +358,14 @@ impl PyJet {
 
         self.inner = Some(JetInner {
             ys,
+            ys_rs,
             ts,
             theta,
             tool,
             interpolator,
             eats,
             afterglow,
+            include_reverse_shock: include_rs,
         });
         Ok(())
     }
@@ -394,6 +460,27 @@ impl PyJet {
             PyRuntimeError::new_err("solveJet() must be called first")
         })?;
         inner.afterglow.config_parameters(param);
+
+        // Auto-configure RS parameters from config if RS is enabled
+        if inner.include_reverse_shock {
+            let mut param_rs = HashMap::new();
+            param_rs.insert("eps_e".to_string(), self.config.eps_e_rs);
+            param_rs.insert("eps_b".to_string(), self.config.eps_b_rs);
+            param_rs.insert("p".to_string(), self.config.p_rs);
+            // Copy shared parameters from FS params
+            param_rs.insert("theta_v".to_string(), inner.afterglow.theta_v);
+            param_rs.insert("d".to_string(), inner.afterglow.d);
+            param_rs.insert("z".to_string(), inner.afterglow.z);
+            inner.afterglow.config_rs_parameters(param_rs);
+        }
+        Ok(())
+    }
+
+    fn configRsParameters(&mut self, param_rs: HashMap<String, f64>) -> PyResult<()> {
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            PyRuntimeError::new_err("solveJet() must be called first")
+        })?;
+        inner.afterglow.config_rs_parameters(param_rs);
         Ok(())
     }
 
@@ -509,6 +596,79 @@ impl PyJet {
             PyRuntimeError::new_err("solveJet() must be called first")
         })?;
 
+        let has_rs = inner.include_reverse_shock && inner.ys_rs.is_some();
+
+        let n = broadcast_len(&[&tobs, &nu, &rtol], py)?;
+        if let Some(n) = n {
+            let (t_s, _) = extract_broadcast(&tobs, py, Some(n))?;
+            let (nu_s, _) = extract_broadcast(&nu, py, Some(n))?;
+            let (rtol_s, _) = extract_broadcast(&rtol, py, Some(n))?;
+
+            let mut results: Vec<f64> = py.allow_threads(|| {
+                (0..n)
+                    .into_par_iter()
+                    .map(|i| {
+                        if has_rs {
+                            inner.afterglow.luminosity_total(
+                                t_s[i], nu_s[i], rtol_s[i],
+                                max_iter as usize, force_return,
+                                &inner.eats, &inner.ys,
+                                inner.ys_rs.as_ref().unwrap(),
+                                &inner.ts, &inner.theta, &inner.tool,
+                            )
+                        } else {
+                            inner.afterglow.luminosity(
+                                t_s[i], nu_s[i], rtol_s[i],
+                                max_iter as usize, force_return,
+                                &inner.eats, &inner.ys, &inner.ts, &inner.theta, &inner.tool,
+                            )
+                        }
+                    })
+                    .collect()
+            });
+
+            // Fill isolated zero-valued points via log-log interpolation
+            interpolate_zero_luminosities(&mut results, &t_s, &nu_s);
+
+            Ok(PyArray1::from_vec(py, results).into_any().unbind())
+        } else {
+            let t_val: f64 = tobs.extract(py)?;
+            let nu_val: f64 = nu.extract(py)?;
+            let rtol_val: f64 = rtol.extract(py)?;
+            let result = if has_rs {
+                inner.afterglow.luminosity_total(
+                    t_val, nu_val, rtol_val,
+                    max_iter as usize, force_return,
+                    &inner.eats, &inner.ys,
+                    inner.ys_rs.as_ref().unwrap(),
+                    &inner.ts, &inner.theta, &inner.tool,
+                )
+            } else {
+                inner.afterglow.luminosity(
+                    t_val, nu_val, rtol_val,
+                    max_iter as usize, force_return,
+                    &inner.eats, &inner.ys, &inner.ts, &inner.theta, &inner.tool,
+                )
+            };
+            Ok(result.into_pyobject(py)?.into_any().unbind())
+        }
+    }
+
+    /// Calculate forward-shock-only luminosity (for diagnostics when RS is enabled).
+    #[pyo3(signature = (tobs, nu, rtol, max_iter=50, force_return=true))]
+    fn calculateLuminosityForward(
+        &self,
+        tobs: PyObject,
+        nu: PyObject,
+        rtol: PyObject,
+        max_iter: i32,
+        force_return: bool,
+        py: Python,
+    ) -> PyResult<PyObject> {
+        let inner = self.inner.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("solveJet() must be called first")
+        })?;
+
         let n = broadcast_len(&[&tobs, &nu, &rtol], py)?;
         if let Some(n) = n {
             let (t_s, _) = extract_broadcast(&tobs, py, Some(n))?;
@@ -528,9 +688,7 @@ impl PyJet {
                     .collect()
             });
 
-            // Fill isolated zero-valued points via log-log interpolation
             interpolate_zero_luminosities(&mut results, &t_s, &nu_s);
-
             Ok(PyArray1::from_vec(py, results).into_any().unbind())
         } else {
             let t_val: f64 = tobs.extract(py)?;
@@ -540,6 +698,64 @@ impl PyJet {
                 t_val, nu_val, rtol_val,
                 max_iter as usize, force_return,
                 &inner.eats, &inner.ys, &inner.ts, &inner.theta, &inner.tool,
+            );
+            Ok(result.into_pyobject(py)?.into_any().unbind())
+        }
+    }
+
+    /// Calculate reverse-shock-only luminosity (for diagnostics).
+    #[pyo3(signature = (tobs, nu, rtol, max_iter=50, force_return=true))]
+    fn calculateLuminosityReverse(
+        &self,
+        tobs: PyObject,
+        nu: PyObject,
+        rtol: PyObject,
+        max_iter: i32,
+        force_return: bool,
+        py: Python,
+    ) -> PyResult<PyObject> {
+        let inner = self.inner.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("solveJet() must be called first")
+        })?;
+
+        if !inner.include_reverse_shock || inner.ys_rs.is_none() {
+            return Err(PyRuntimeError::new_err(
+                "Reverse shock not enabled. Set include_reverse_shock=True in config."
+            ));
+        }
+
+        let rs_data = inner.ys_rs.as_ref().unwrap();
+        let n = broadcast_len(&[&tobs, &nu, &rtol], py)?;
+        if let Some(n) = n {
+            let (t_s, _) = extract_broadcast(&tobs, py, Some(n))?;
+            let (nu_s, _) = extract_broadcast(&nu, py, Some(n))?;
+            let (rtol_s, _) = extract_broadcast(&rtol, py, Some(n))?;
+
+            let mut results: Vec<f64> = py.allow_threads(|| {
+                (0..n)
+                    .into_par_iter()
+                    .map(|i| {
+                        inner.afterglow.luminosity_reverse(
+                            t_s[i], nu_s[i], rtol_s[i],
+                            max_iter as usize, force_return,
+                            &inner.eats, &inner.ys, rs_data,
+                            &inner.ts, &inner.theta, &inner.tool,
+                        )
+                    })
+                    .collect()
+            });
+
+            interpolate_zero_luminosities(&mut results, &t_s, &nu_s);
+            Ok(PyArray1::from_vec(py, results).into_any().unbind())
+        } else {
+            let t_val: f64 = tobs.extract(py)?;
+            let nu_val: f64 = nu.extract(py)?;
+            let rtol_val: f64 = rtol.extract(py)?;
+            let result = inner.afterglow.luminosity_reverse(
+                t_val, nu_val, rtol_val,
+                max_iter as usize, force_return,
+                &inner.eats, &inner.ys, rs_data,
+                &inner.ts, &inner.theta, &inner.tool,
             );
             Ok(result.into_pyobject(py)?.into_any().unbind())
         }

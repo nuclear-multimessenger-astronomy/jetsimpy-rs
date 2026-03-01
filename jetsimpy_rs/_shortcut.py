@@ -2,7 +2,16 @@ from ._jetsimpy import Jet
 from ._grid import *
 from ._jet_type import *
 
-def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+    # Extract RS parameters if provided
+    rs_kwargs = {}
+    if include_rs:
+        rs_kwargs["include_reverse_shock"] = True
+        if rs_params:
+            for key in ("sigma", "eps_e_rs", "eps_b_rs", "p_rs", "t0_injection", "l_injection", "m_dot_injection"):
+                if key in rs_params:
+                    rs_kwargs[key] = rs_params[key]
+
     # simulation
     jet = Jet(
         TopHat(P["theta_c"], P["Eiso"], lf0=P["lf"]),    # jet profile
@@ -12,10 +21,11 @@ def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1,
         tmax=tmax,                    # [simulation end time]: (s)
         grid=ForwardJetRes(P["theta_c"], 129),    # [cell edge angles]: must start with 0 and end with pi.
         tail=True,                     # [isotropic tail]: add an extremely low energy low velocity isotropic tail for safty
-        spread=spread,                   # w/wo spreading effect 
+        spread=spread,                   # w/wo spreading effect
         cal_level=cal_level,                   # [calibration level]: 0: no calibration. 1: BM all time. 2: smoothly go from BM to ST (dangerous)
         rtol=1e-6,                     # [primitive variable solver tolerance]: Don't change it unless you know what is going on.
         cfl=cfl,                       # [cfl number]: Don't change it unless you know what is going on.
+        **rs_kwargs,
     )
 
     # flux density
@@ -31,7 +41,16 @@ def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1,
 
     return flux
 
-def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+    # Extract RS parameters if provided
+    rs_kwargs = {}
+    if include_rs:
+        rs_kwargs["include_reverse_shock"] = True
+        if rs_params:
+            for key in ("sigma", "eps_e_rs", "eps_b_rs", "p_rs", "t0_injection", "l_injection", "m_dot_injection"):
+                if key in rs_params:
+                    rs_kwargs[key] = rs_params[key]
+
     # simulation
     jet = Jet(
         Gaussian(P["theta_c"], P["Eiso"], lf0=P["lf"]),    # jet profile
@@ -41,10 +60,11 @@ def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=
         tmax=tmax,                    # [simulation end time]: (s)
         grid=ForwardJetRes(P["theta_c"], 129),    # [cell edge angles]: must start with 0 and end with pi.
         tail=True,                     # [isotropic tail]: add an extremely low energy low velocity isotropic tail for safty
-        spread=spread,                   # w/wo spreading effect 
+        spread=spread,                   # w/wo spreading effect
         cal_level=cal_level,                   # [calibration level]: 0: no calibration. 1: BM all time. 2: smoothly go from BM to ST (dangerous)
         rtol=1e-6,                     # [primitive variable solver tolerance]: Don't change it unless you know what is going on.
         cfl=cfl,                       # [cfl number]: Don't change it unless you know what is going on.
+        **rs_kwargs,
     )
 
     # flux density
@@ -60,7 +80,16 @@ def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=
 
     return flux
 
-def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+    # Extract RS parameters if provided
+    rs_kwargs = {}
+    if include_rs:
+        rs_kwargs["include_reverse_shock"] = True
+        if rs_params:
+            for key in ("sigma", "eps_e_rs", "eps_b_rs", "p_rs", "t0_injection", "l_injection", "m_dot_injection"):
+                if key in rs_params:
+                    rs_kwargs[key] = rs_params[key]
+
     # simulation
     jet = Jet(
         PowerLaw(P["theta_c"], P["Eiso"], lf0=P["lf"], s=P["s"]),    # jet profile
@@ -70,10 +99,11 @@ def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=
         tmax=tmax,                    # [simulation end time]: (s)
         grid=ForwardJetRes(P["theta_c"], 129),    # [cell edge angles]: must start with 0 and end with pi.
         tail=True,                     # [isotropic tail]: add an extremely low energy low velocity isotropic tail for safty
-        spread=spread,                   # w/wo spreading effect 
+        spread=spread,                   # w/wo spreading effect
         cal_level=cal_level,                   # [calibration level]: 0: no calibration. 1: BM all time. 2: smoothly go from BM to ST (dangerous)
         rtol=1e-6,                     # [primitive variable solver tolerance]: Don't change it unless you know what is going on.
         cfl=cfl,                       # [cfl number]: Don't change it unless you know what is going on.
+        **rs_kwargs,
     )
 
     # flux density

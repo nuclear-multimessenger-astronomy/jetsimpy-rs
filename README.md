@@ -7,6 +7,9 @@ A Rust reimplementation of [jetsimpy](https://github.com/haowang-astro/jetsimpy)
 - Hydrodynamic simulation of relativistic jet evolution
 - Synchrotron radiation calculation with EATS (Equal Arrival Time Surface) integration
 - Support for top-hat, Gaussian, and power-law jet profiles
+- Three lateral spreading modes: PDE (finite-volume), ODE (VegasAfterglow-style), and no-spread
+- Synchrotron self-absorption (SSA) and inverse Compton scattering
+- Reverse shock dynamics and emission
 - Python API compatible with the original jetsimpy
 
 ## Project Structure
@@ -80,6 +83,44 @@ fd_gaussian = jetsimpy_rs.FluxDensity_gaussian(tsecond, nu, P)
 fd_powerlaw = jetsimpy_rs.FluxDensity_powerlaw(tsecond, nu, P)
 ```
 
+## Lateral Spreading Modes
+
+jetsimpy-rs supports three lateral spreading modes, selectable via the `spread_mode` parameter:
+
+| Mode | Description | Algorithm | Best for |
+|------|-------------|-----------|----------|
+| `"pde"` | Finite-volume PDE spreading (default when `spread=True`) | CFL-limited RK2 with lateral flux transport | Full lateral flux transport physics |
+| `"ode"` | Per-cell ODE spreading (VegasAfterglow-style) | Adaptive RK45 per cell, independent evolution | Fast spreading with ~0.1 dex accuracy vs PDE |
+| `"none"` | No lateral spreading (default when `spread=False`) | Adaptive RK45, cells fully independent | Earliest afterglow phases, benchmarking |
+
+### Usage
+
+```python
+# Default: PDE spreading (backward compatible)
+jet = jetsimpy_rs.Jet(profiles, nwind, nism, spread=True)
+
+# ODE spreading (VegasAfterglow-style, faster for tophat jets)
+jet = jetsimpy_rs.Jet(profiles, nwind, nism, spread_mode="ode")
+
+# No spreading
+jet = jetsimpy_rs.Jet(profiles, nwind, nism, spread=False)
+# or equivalently:
+jet = jetsimpy_rs.Jet(profiles, nwind, nism, spread_mode="none")
+```
+
+### ODE Spreading Physics
+
+The ODE spreading mode implements the lateral spreading model from Wang et al. (2024):
+
+- **Spreading equation**: `dθ/dt = F(u) · β_f · c / (2Γr)` where `F(u) = 1/(1 + 7·u·θ_s)` is a suppression function that enforces causality at high Lorentz factors
+- **Solid angle correction**: Mass sweeping rate is modified by `f = (1 - cos θ) / (1 - cos θ₀)` to account for the changing solid angle as the jet spreads
+- **Independent cells**: Each theta cell evolves its own ODE system with adaptive Dormand-Prince RK45 (no lateral flux transport between cells)
+- **Tophat fast path**: For uniform initial conditions, solves 1 cell and replicates
+
+### Accuracy
+
+ODE and PDE modes agree within ~0.1 dex for tophat jets and ~0.13 dex for structured (Gaussian) jets across all frequencies and times.
+
 ## Zero-value Interpolation in Luminosity Computation
 
 For extreme physical parameters (e.g. very high isotropic energy E0 ~ 1e57 erg or very low ISM density n0 ~ 1e-5 cm^-3), the EATS solver can fail to find a solution at certain observation times because the required source-frame time exceeds the PDE evolution maximum (`tmax`). When this happens, `luminosity()` returns 0.0 for those time points, producing isolated gaps in an otherwise smooth lightcurve.
@@ -113,7 +154,7 @@ A complementary fix in the adaptive quadrature (`src/math/integral.rs`) forces r
 
 ## References
 
-- Wang, H., Bhattacharya, M., Gill, R., & Giannios, D. (2024). "jetsimpy: A Highly Efficient Hydrodynamic Code for Gamma-Ray Burst Afterglow." *The Astrophysical Journal Supplement Series*, 273(1), 17. [arXiv:2404.11365](https://arxiv.org/abs/2404.11365)
+- Wang, H., Bhattacharya, M., Gill, R., & Giannios, D. (2024). "jetsimpy: A Highly Efficient Hydrodynamic Code for Gamma-Ray Burst Afterglow." *The Astrophysical Journal Supplement Series*, 273(1), 17. [arXiv:2402.19359](https://arxiv.org/abs/2402.19359)
 - Original implementation: [haowang-astro/jetsimpy](https://github.com/haowang-astro/jetsimpy)
 
 ## License

@@ -20,6 +20,10 @@ impl Tool {
         }
     }
 
+    pub fn nwind_nonzero(&self) -> bool {
+        self.nwind > 0.0
+    }
+
     pub fn solve_density(&self, r: f64) -> f64 {
         let r17 = r / 1e17;
         self.nwind / (r17 * r17) + self.nism

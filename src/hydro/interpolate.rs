@@ -85,4 +85,19 @@ impl Interpolator {
             tool.linear(t, t1, t2, y1, y2)
         }
     }
+
+    /// Interpolate reverse shock state variable.
+    /// rs_data layout: [NVAR_RS][ntheta][nt]
+    pub fn interpolate_reverse(
+        &self,
+        t: f64,
+        theta: f64,
+        var_index: usize,
+        rs_data: &[Vec<Vec<f64>>],
+        t_data: &[f64],
+        theta_data: &[f64],
+        tool: &Tool,
+    ) -> f64 {
+        self.interpolate_y(t, theta, var_index, rs_data, t_data, theta_data, tool)
+    }
 }

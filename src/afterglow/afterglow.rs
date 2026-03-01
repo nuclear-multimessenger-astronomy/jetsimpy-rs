@@ -10,6 +10,7 @@ use crate::afterglow::models::{Dict, RadiationModel};
 /// Afterglow flux density pipeline.
 pub struct Afterglow {
     pub param: Dict,
+    pub param_rs: Dict,  // RS-specific parameters (eps_e_rs, eps_b_rs, p_rs)
     pub theta_v: f64,
     pub z: f64,
     pub d: f64,
@@ -21,6 +22,7 @@ impl Afterglow {
     pub fn new() -> Self {
         Afterglow {
             param: Dict::new(),
+            param_rs: Dict::new(),
             theta_v: 0.0,
             z: 0.0,
             d: 0.0,
@@ -36,6 +38,11 @@ impl Afterglow {
         self.d = *param.get("d").expect("Mandatory parameter 'd' missing");
         self.z = *param.get("z").expect("Mandatory parameter 'z' missing");
         self.param = param;
+    }
+
+    /// Configure reverse shock radiation parameters.
+    pub fn config_rs_parameters(&mut self, param_rs: Dict) {
+        self.param_rs = param_rs;
     }
 
     pub fn config_intensity(&mut self, model_name: &str) {
@@ -149,6 +156,50 @@ impl Afterglow {
         }
         let beaming_angle = 1.0 / blast_peak.gamma;
 
+        // Build initial sample grid dense enough to capture the narrow emission beam.
+        let mut cos_theta_samples = vec![-1.0];
+        let n_uniform = 8;
+        for i in 1..n_uniform {
+            cos_theta_samples.push(-1.0 + 2.0 * i as f64 / n_uniform as f64);
+        }
+        let ba = beaming_angle;
+        for &frac in &[0.25, 0.5, 1.0, 2.0] {
+            let val = (ba * frac).cos();
+            cos_theta_samples.push(val);
+        }
+        cos_theta_samples.push(1.0);
+        cos_theta_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        cos_theta_samples.dedup_by(|a, b| (*a - *b).abs() < 1e-14);
+
+        // For on-axis observers (theta_v ≈ 0), the integrand has azimuthal symmetry.
+        // Use a 1D integral over cos_theta with a 2π phi factor (3x faster).
+        if self.theta_v.abs() < 1e-6 {
+            let mut f_1d = |cos_theta: f64| -> f64 {
+                let theta = cos_theta.acos();
+                let mut blast = Blast::default();
+                if !eats.solve_blast(
+                    tobs_z, theta, 0.0, self.theta_v, y_data, t_data, theta_data, tool, &mut blast,
+                ) {
+                    return 0.0;
+                }
+                self.dl_domega(nu_z, &blast)
+            };
+
+            let luminosity = adaptive_1d(
+                &mut f_1d,
+                &cos_theta_samples,
+                0.0,
+                rtol,
+                max_iter,
+                force_return,
+            )
+            .unwrap_or(0.0)
+                * 2.0 * PI;
+
+            return luminosity;
+        }
+
+        // Off-axis: full 2D integral over (cos_theta, phi)
         let mut f = |cos_theta_rot: f64, phi_rot: f64| -> f64 {
             let theta_rot = cos_theta_rot.acos();
 
@@ -175,27 +226,6 @@ impl Afterglow {
             self.dl_domega(nu_z, &blast)
         };
 
-        // Build initial sample grid dense enough to capture the narrow emission beam.
-        // The beaming angle 1/gamma can be very small, so we place samples both
-        // around the beam and uniformly across the domain to avoid the adaptive
-        // integrator seeing all-zeros and skipping refinement.
-        let mut cos_theta_samples = vec![-1.0];
-        // Uniform samples to cover the full domain
-        let n_uniform = 8;
-        for i in 1..n_uniform {
-            cos_theta_samples.push(-1.0 + 2.0 * i as f64 / n_uniform as f64);
-        }
-        // Targeted samples around the beaming cone
-        let ba = beaming_angle;
-        for &frac in &[0.25, 0.5, 1.0, 2.0] {
-            let val = (ba * frac).cos();
-            cos_theta_samples.push(val);
-        }
-        cos_theta_samples.push(1.0);
-        // Sort and deduplicate (required by adaptive_1d)
-        cos_theta_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        cos_theta_samples.dedup_by(|a, b| (*a - *b).abs() < 1e-14);
-
         let phi_samples = vec![0.0, PI / 2.0, PI];
 
         let luminosity = adaptive_2d(
@@ -211,6 +241,162 @@ impl Afterglow {
             * 2.0;
 
         luminosity
+    }
+
+    /// Compute reverse shock luminosity using RS-specific Blast fields.
+    pub fn luminosity_reverse(
+        &self,
+        tobs: f64,
+        nu: f64,
+        rtol: f64,
+        max_iter: usize,
+        force_return: bool,
+        eats: &EATS,
+        y_data: &[Vec<Vec<f64>>],
+        rs_data: &[Vec<Vec<f64>>],
+        t_data: &[f64],
+        theta_data: &[f64],
+        tool: &Tool,
+    ) -> f64 {
+        let tobs_z = tobs / (1.0 + self.z);
+        let nu_z = nu * (1.0 + self.z);
+
+        // Find peak for RS (use same approach as FS)
+        let theta_peak = self.find_peak_reverse(
+            tobs_z, nu_z, eats, y_data, rs_data, t_data, theta_data, tool,
+        );
+
+        let mut blast_peak = Blast::default();
+        if !eats.solve_blast_reverse(
+            tobs_z, theta_peak, 0.0, self.theta_v,
+            y_data, rs_data, t_data, theta_data, tool, &mut blast_peak,
+        ) {
+            return 0.0;
+        }
+        let beaming_angle = 1.0 / blast_peak.gamma;
+
+        let mut cos_theta_samples = vec![-1.0];
+        let n_uniform = 8;
+        for i in 1..n_uniform {
+            cos_theta_samples.push(-1.0 + 2.0 * i as f64 / n_uniform as f64);
+        }
+        let ba = beaming_angle;
+        for &frac in &[0.25, 0.5, 1.0, 2.0] {
+            let val = (ba * frac).cos();
+            cos_theta_samples.push(val);
+        }
+        cos_theta_samples.push(1.0);
+        cos_theta_samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        cos_theta_samples.dedup_by(|a, b| (*a - *b).abs() < 1e-14);
+
+        // On-axis optimization: azimuthal symmetry → 1D integral
+        if self.theta_v.abs() < 1e-6 {
+            let mut f_1d = |cos_theta: f64| -> f64 {
+                let theta = cos_theta.acos();
+                let mut blast = Blast::default();
+                if !eats.solve_blast_reverse(
+                    tobs_z, theta, 0.0, self.theta_v,
+                    y_data, rs_data, t_data, theta_data, tool, &mut blast,
+                ) {
+                    return 0.0;
+                }
+                self.dl_domega_rs(nu_z, &blast)
+            };
+
+            return adaptive_1d(
+                &mut f_1d, &cos_theta_samples,
+                0.0, rtol, max_iter, force_return,
+            ).unwrap_or(0.0) * 2.0 * PI;
+        }
+
+        let mut f = |cos_theta_rot: f64, phi_rot: f64| -> f64 {
+            let theta_rot = cos_theta_rot.acos();
+            let x = theta_rot.sin() * phi_rot.cos() * theta_peak.cos()
+                + theta_rot.cos() * theta_peak.sin();
+            let y = theta_rot.sin() * phi_rot.sin();
+            let z_val = -theta_rot.sin() * phi_rot.cos() * theta_peak.sin()
+                + theta_rot.cos() * theta_peak.cos();
+            let cos_theta = z_val.abs().min(1.0) * z_val.signum();
+            let theta = cos_theta.acos();
+            let mut phi = y.atan2(x);
+            if phi < 0.0 { phi += PI * 2.0; }
+
+            let mut blast = Blast::default();
+            if !eats.solve_blast_reverse(
+                tobs_z, theta, phi, self.theta_v,
+                y_data, rs_data, t_data, theta_data, tool, &mut blast,
+            ) {
+                return 0.0;
+            }
+            self.dl_domega_rs(nu_z, &blast)
+        };
+
+        let phi_samples = vec![0.0, PI / 2.0, PI];
+
+        let luminosity = adaptive_2d(
+            &mut f, &cos_theta_samples, &phi_samples,
+            0.0, rtol, max_iter, force_return,
+        ).unwrap_or(0.0) * 2.0;
+
+        luminosity
+    }
+
+    /// Combined FS + RS luminosity.
+    pub fn luminosity_total(
+        &self,
+        tobs: f64,
+        nu: f64,
+        rtol: f64,
+        max_iter: usize,
+        force_return: bool,
+        eats: &EATS,
+        y_data: &[Vec<Vec<f64>>],
+        rs_data: &[Vec<Vec<f64>>],
+        t_data: &[f64],
+        theta_data: &[f64],
+        tool: &Tool,
+    ) -> f64 {
+        let l_fwd = self.luminosity(
+            tobs, nu, rtol, max_iter, force_return,
+            eats, y_data, t_data, theta_data, tool,
+        );
+        let l_rvs = self.luminosity_reverse(
+            tobs, nu, rtol, max_iter, force_return,
+            eats, y_data, rs_data, t_data, theta_data, tool,
+        );
+        l_fwd + l_rvs
+    }
+
+    fn dl_domega_rs(&self, nu_z: f64, blast: &Blast) -> f64 {
+        let nu_src = nu_z / blast.doppler;
+        let model = self.radiation_model.unwrap();
+        // Use RS parameters
+        let intensity = model(nu_src, &self.param_rs, blast);
+        intensity * blast.r * blast.r * blast.doppler * blast.doppler * blast.doppler
+    }
+
+    fn find_peak_reverse(
+        &self,
+        tobs_z: f64,
+        nu_z: f64,
+        eats: &EATS,
+        y_data: &[Vec<Vec<f64>>],
+        rs_data: &[Vec<Vec<f64>>],
+        t_data: &[f64],
+        theta_data: &[f64],
+        tool: &Tool,
+    ) -> f64 {
+        let mut f = |theta: f64| -> f64 {
+            let mut blast = Blast::default();
+            if !eats.solve_blast_reverse(
+                tobs_z, theta, 0.0, self.theta_v,
+                y_data, rs_data, t_data, theta_data, tool, &mut blast,
+            ) {
+                return 0.0;
+            }
+            -self.dl_domega_rs(nu_z, &blast)
+        };
+        minimization(&mut f, theta_data, 1e-6, 100)
     }
 
     pub fn freq_int_l(

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use jetsimpy_rs::constants::*;
-use jetsimpy_rs::hydro::config::JetConfig;
+use jetsimpy_rs::hydro::config::{JetConfig, SpreadMode};
 use jetsimpy_rs::hydro::sim_box::SimBox;
 use jetsimpy_rs::hydro::interpolate::Interpolator;
 use jetsimpy_rs::hydro::tools::Tool;
@@ -103,6 +103,7 @@ fn tophat_config() -> JetConfig {
         cfl: 0.9,
         spread: true,
         cal_level: 1,
+        ..JetConfig::default()
     }
 }
 
@@ -271,4 +272,345 @@ fn test_flux_density_decreases_at_late_times() {
         "On-axis top-hat X-ray flux should decay: L(1d) = {:.3e}, L(100d) = {:.3e}",
         l_early, l_late,
     );
+}
+
+/// Build a small top-hat jet config with reverse shock enabled.
+/// Uses fewer cells and shorter time range for faster integration tests.
+fn small_tophat_config_with_rs() -> JetConfig {
+    let theta_c: f64 = 0.1;
+    let eiso: f64 = 1e52;
+    let lf0: f64 = 300.0;
+    let n0: f64 = 1.0;
+    let nwind: f64 = 0.0;
+    let tmin: f64 = 10.0;
+    let tmax: f64 = 1e7; // shorter time range for RS tests
+
+    // Small grid: 17 edges = 16 cells (much faster than 128)
+    let npoints = 17;
+    let mut theta_edge = vec![0.0; npoints];
+    let arcsinh_max = (PI / theta_c).asinh();
+    for i in 0..npoints {
+        theta_edge[i] = (i as f64 / (npoints - 1) as f64 * arcsinh_max).sinh() * theta_c;
+    }
+    theta_edge[0] = 0.0;
+    theta_edge[npoints - 1] = PI;
+
+    let ncells = npoints - 1;
+    let theta: Vec<f64> = (0..ncells)
+        .map(|i| (theta_edge[i] + theta_edge[i + 1]) / 2.0)
+        .collect();
+
+    let nfine = 1000;
+    let theta_fine: Vec<f64> = (0..nfine).map(|i| i as f64 / (nfine - 1) as f64 * PI).collect();
+    let mut energy_fine = vec![eiso; nfine];
+    let mut lf_fine = vec![1.0f64; nfine];
+    for i in 0..nfine {
+        if theta_fine[i] > theta_c {
+            energy_fine[i] = 0.0;
+        } else {
+            lf_fine[i] = lf0;
+        }
+    }
+
+    let max_e = energy_fine.iter().cloned().fold(0.0f64, f64::max);
+    for e in energy_fine.iter_mut() {
+        if *e <= max_e * 1e-12 { *e = max_e * 1e-12; }
+    }
+    for lf in lf_fine.iter_mut() {
+        if *lf <= 1.005 { *lf = 1.005; }
+    }
+
+    let energy_interp = interp(&theta, &theta_fine,
+        &energy_fine.iter().map(|e| e / 4.0 / PI / C_SPEED / C_SPEED).collect::<Vec<_>>());
+    let lf_interp = interp(&theta, &theta_fine, &lf_fine);
+
+    let mej0: Vec<f64> = energy_interp.iter().zip(lf_interp.iter())
+        .map(|(e, lf)| e / (lf - 1.0)).collect();
+    let beta0: Vec<f64> = lf_interp.iter()
+        .map(|lf| (1.0 - 1.0 / (lf * lf)).sqrt()).collect();
+    let r0: Vec<f64> = beta0.iter()
+        .map(|b| b * C_SPEED * tmin).collect();
+    let msw0: Vec<f64> = r0.iter()
+        .map(|r| nwind * MASS_P * r / 1e17 * 1e51 + n0 * MASS_P * r * r * r / 3.0).collect();
+    let eb0: Vec<f64> = energy_interp.iter().zip(mej0.iter()).zip(msw0.iter())
+        .map(|((e, m), ms)| e + m + ms).collect();
+    let ht0 = vec![0.0; ncells];
+
+    JetConfig {
+        theta_edge,
+        eb: eb0,
+        ht: ht0,
+        msw: msw0,
+        mej: mej0,
+        r: r0,
+        nwind,
+        nism: n0,
+        tmin,
+        tmax,
+        rtol: 1e-4, // relaxed tolerance for speed
+        cfl: 0.9,
+        spread: true,
+        cal_level: 1,
+        include_reverse_shock: true,
+        sigma: 0.0,
+        eps_e_rs: 0.1,
+        eps_b_rs: 0.01,
+        p_rs: 2.3,
+        ..JetConfig::default()
+    }
+}
+
+#[test]
+fn test_forward_only_regression() {
+    // Verify that the forward shock luminosity is positive/finite (regression test)
+    let config_fs = tophat_config();
+    let mut sim_fs = SimBox::new(&config_fs);
+    sim_fs.solve_pde();
+
+    let theta = sim_fs.get_theta().clone();
+    let tool = Tool::new(config_fs.nwind, config_fs.nism, config_fs.rtol, config_fs.cal_level);
+    let eats = EATS::new(&theta, &sim_fs.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param);
+    afterglow.config_intensity("sync");
+
+    let tobs = 86400.0;
+    let nu = 1e18;
+    let l_fs = afterglow.luminosity(
+        tobs, nu, 1e-3, 50, true,
+        &eats, &sim_fs.ys, &sim_fs.ts, &theta, &tool,
+    );
+
+    assert!(l_fs > 0.0, "Forward shock luminosity should be positive");
+    assert!(l_fs.is_finite(), "Forward shock luminosity should be finite");
+}
+
+#[test]
+fn test_rs_pde_produces_valid_output() {
+    let config = small_tophat_config_with_rs();
+    let ncells = config.eb.len();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+    sim.solve_reverse_shock();
+
+    // RS data should be populated
+    assert!(sim.ys_rs.is_some(), "RS data should be populated when reverse shock is enabled");
+    let ys_rs = sim.ys_rs.as_ref().unwrap();
+
+    // Should have NVAR_RS variables
+    assert!(ys_rs.len() > 0, "RS data should have state variables");
+
+    // Each variable should have ncells theta cells
+    for var in ys_rs {
+        assert_eq!(var.len(), ncells, "RS vars should have same theta cells as FS");
+    }
+
+    // All RS values should be finite
+    for var in ys_rs {
+        for cell in var {
+            for &val in cell {
+                assert!(val.is_finite(), "RS solution contains non-finite value: {}", val);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_rs_luminosity_positive_and_finite() {
+    let config = small_tophat_config_with_rs();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+    sim.solve_reverse_shock();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param);
+    afterglow.config_intensity("sync");
+
+    // Configure RS parameters
+    let mut param_rs = HashMap::new();
+    param_rs.insert("eps_e".into(), config.eps_e_rs);
+    param_rs.insert("eps_b".into(), config.eps_b_rs);
+    param_rs.insert("p".into(), config.p_rs);
+    param_rs.insert("theta_v".into(), 0.0);
+    param_rs.insert("d".into(), 474.33);
+    param_rs.insert("z".into(), 0.1);
+    afterglow.config_rs_parameters(param_rs);
+
+    let rs_data = sim.ys_rs.as_ref().unwrap();
+
+    // Test total luminosity (FS + RS) at early time (when RS is strong)
+    let tobs = 1000.0; // early time
+    let nu = 1e10;     // radio (where RS is typically stronger)
+    let l_total = afterglow.luminosity_total(
+        tobs, nu, 1e-2, 30, true,
+        &eats, &sim.ys, rs_data, &sim.ts, &theta, &tool,
+    );
+
+    assert!(l_total.is_finite(), "Total luminosity should be finite, got {}", l_total);
+
+    // Test FS luminosity alone
+    let l_fs = afterglow.luminosity(
+        tobs, nu, 1e-2, 30, true,
+        &eats, &sim.ys, &sim.ts, &theta, &tool,
+    );
+    assert!(l_fs.is_finite(), "FS luminosity should be finite");
+
+    // Total should be >= FS (since RS adds non-negative contribution)
+    assert!(
+        l_total >= l_fs - 1e-30,
+        "Total luminosity should be >= FS luminosity: total={:.3e}, fs={:.3e}",
+        l_total, l_fs,
+    );
+}
+
+/// Build a top-hat config with ODE spreading mode.
+fn tophat_config_ode() -> JetConfig {
+    let mut config = tophat_config();
+    config.spread_mode = SpreadMode::Ode;
+    config.theta_c = 0.1;
+    config
+}
+
+#[test]
+fn test_ode_spread_produces_valid_output() {
+    let config = tophat_config_ode();
+    let ncells = config.eb.len();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    // Must have output time steps
+    assert!(sim.ts.len() >= 2, "ODE spread should produce multiple time steps");
+
+    // Time should be monotonically increasing
+    for i in 1..sim.ts.len() {
+        assert!(sim.ts[i] > sim.ts[i - 1], "Time must be monotonically increasing");
+    }
+
+    // Should have 5 variables
+    assert_eq!(sim.ys.len(), 5);
+    for var in &sim.ys {
+        assert_eq!(var.len(), ncells);
+        for cell in var {
+            assert_eq!(cell.len(), sim.ts.len());
+        }
+    }
+
+    // All values should be finite
+    for var in &sim.ys {
+        for cell in var {
+            for &val in cell {
+                assert!(val.is_finite(), "ODE spread solution contains non-finite value");
+            }
+        }
+    }
+}
+
+#[test]
+fn test_ode_spread_luminosity() {
+    let config = tophat_config_ode();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param);
+    afterglow.config_intensity("sync");
+
+    let tobs = 86400.0;
+    let nu = 1e18;
+    let luminosity = afterglow.luminosity(
+        tobs, nu, 1e-3, 50, true,
+        &eats, &sim.ys, &sim.ts, &theta, &tool,
+    );
+
+    assert!(luminosity > 0.0, "ODE spread luminosity should be positive, got {}", luminosity);
+    assert!(luminosity.is_finite(), "ODE spread luminosity should be finite");
+    assert!(luminosity > 1e20, "ODE spread luminosity suspiciously low: {:.3e}", luminosity);
+    assert!(luminosity < 1e55, "ODE spread luminosity suspiciously high: {:.3e}", luminosity);
+}
+
+#[test]
+fn test_ode_vs_pde_spread_agreement() {
+    // ODE and PDE modes should produce broadly similar results for tophat jets
+    let config_pde = tophat_config();
+    let mut sim_pde = SimBox::new(&config_pde);
+    sim_pde.solve_pde();
+
+    let config_ode = tophat_config_ode();
+    let mut sim_ode = SimBox::new(&config_ode);
+    sim_ode.solve_pde();
+
+    let theta_pde = sim_pde.get_theta().clone();
+    let theta_ode = sim_ode.get_theta().clone();
+    let tool = Tool::new(config_pde.nwind, config_pde.nism, config_pde.rtol, config_pde.cal_level);
+
+    let eats_pde = EATS::new(&theta_pde, &sim_pde.ts);
+    let eats_ode = EATS::new(&theta_ode, &sim_ode.ts);
+
+    let mut afterglow_pde = Afterglow::new();
+    let mut afterglow_ode = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow_pde.config_parameters(param.clone());
+    afterglow_pde.config_intensity("sync");
+    afterglow_ode.config_parameters(param);
+    afterglow_ode.config_intensity("sync");
+
+    let nu = 1e18;
+
+    // Compare at several times
+    for &tobs in &[1e3, 1e5, 1e7] {
+        let l_pde = afterglow_pde.luminosity(
+            tobs, nu, 1e-2, 50, true,
+            &eats_pde, &sim_pde.ys, &sim_pde.ts, &theta_pde, &tool,
+        );
+        let l_ode = afterglow_ode.luminosity(
+            tobs, nu, 1e-2, 50, true,
+            &eats_ode, &sim_ode.ys, &sim_ode.ts, &theta_ode, &tool,
+        );
+
+        if l_pde > 0.0 && l_ode > 0.0 {
+            let log_diff = (l_pde.log10() - l_ode.log10()).abs();
+            assert!(
+                log_diff < 1.0,
+                "ODE vs PDE luminosity differ by > 1 dex at t={:.0e}: PDE={:.3e}, ODE={:.3e} (diff={:.2} dex)",
+                tobs, l_pde, l_ode, log_diff,
+            );
+        }
+    }
 }

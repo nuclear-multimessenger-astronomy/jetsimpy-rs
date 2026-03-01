@@ -1,6 +1,7 @@
 use crate::constants::*;
-use crate::hydro::config::JetConfig;
+use crate::hydro::config::{JetConfig, SpreadMode};
 use crate::hydro::tools::Tool;
+use crate::hydro::reverse_shock::{self, FRShockEqn, NVAR_RS};
 
 /// PDE solver for jet hydrodynamics.
 pub struct SimBox {
@@ -12,6 +13,8 @@ pub struct SimBox {
     tmax: f64,
     cfl: f64,
     spread: bool,
+    spread_mode: SpreadMode,
+    theta_c: f64,
 
     // mesh
     ntheta: usize,
@@ -52,9 +55,21 @@ pub struct SimBox {
     // dy/dt: [5][ntheta]
     dy_dt: Vec<Vec<f64>>,
 
+    // Pre-allocated scratch buffer for RK2 (avoids per-step heap allocation)
+    rk2_scratch: Vec<Vec<f64>>,
+
     // PDE solution: [5][ntheta][nt]
     pub ys: Vec<Vec<Vec<f64>>>,
     pub ts: Vec<f64>,
+
+    // Reverse shock solution: [NVAR_RS][ntheta][nt]
+    // Only populated when include_reverse_shock is true
+    pub ys_rs: Option<Vec<Vec<Vec<f64>>>>,
+    pub crossing_idx: Vec<usize>, // per-theta crossing time index
+
+    // Config reference for RS
+    include_reverse_shock: bool,
+    config_rs: Option<JetConfig>,
 }
 
 impl SimBox {
@@ -73,6 +88,8 @@ impl SimBox {
             tmax: config.tmax,
             cfl: config.cfl,
             spread: config.spread,
+            spread_mode: config.spread_mode,
+            theta_c: config.theta_c,
             ntheta,
             theta,
             theta_edge: config.theta_edge.clone(),
@@ -96,8 +113,13 @@ impl SimBox {
             numerical_flux: vec![vec![0.0; ntheta + 1]; 4],
             dr_dt: vec![0.0; ntheta],
             dy_dt: vec![vec![0.0; ntheta]; 5],
+            rk2_scratch: vec![vec![0.0; ntheta]; 5],
             ys: Vec::new(),
             ts: Vec::new(),
+            ys_rs: None,
+            crossing_idx: Vec::new(),
+            include_reverse_shock: config.include_reverse_shock,
+            config_rs: if config.include_reverse_shock { Some(config.clone()) } else { None },
         };
 
         sb.solve_primitive();
@@ -114,11 +136,85 @@ impl SimBox {
     }
 
     pub fn solve_pde(&mut self) {
-        if self.spread {
-            self.solve_spread();
-        } else {
-            self.solve_no_spread();
+        match self.spread_mode {
+            SpreadMode::None => self.solve_no_spread(),
+            SpreadMode::Ode => self.solve_ode_spread(),
+            SpreadMode::Pde => self.solve_spread(),
         }
+
+        // Solve reverse shock if enabled
+        if self.include_reverse_shock {
+            self.solve_reverse_shock();
+        }
+    }
+
+    /// Solve the reverse shock ODE for each theta cell using the forward shock
+    /// PDE solution as the time grid.
+    pub fn solve_reverse_shock(&mut self) {
+        let config = self.config_rs.as_ref().unwrap().clone();
+        let ntheta = self.ntheta;
+        let nt = self.ts.len();
+        let tmin = self.ts[0];
+        let tmax = *self.ts.last().unwrap();
+
+        // Initialize RS output: [NVAR_RS][ntheta][nt]
+        let mut rs_data: Vec<Vec<Vec<f64>>> = vec![vec![Vec::new(); ntheta]; NVAR_RS];
+        let mut crossing_indices = vec![nt; ntheta];
+
+        for j in 0..ntheta {
+            // Get initial ejecta properties for this theta cell
+            let mej = self.ys[1][j][0]; // initial Mej per sr
+            let bg_sq = self.ys[2][j][0]; // initial beta_gamma_sq
+            let gamma4 = (bg_sq + 1.0).sqrt();
+
+            // Skip cells with negligible ejecta Lorentz factor — no meaningful RS
+            if gamma4 < 1.5 {
+                for var in 0..NVAR_RS {
+                    rs_data[var][j] = vec![0.0; nt];
+                }
+                continue;
+            }
+
+            // Initial ejecta energy (kinetic + rest mass)
+            let eps4_init = (gamma4 - 1.0) * mej * C_SPEED * C_SPEED + mej * C_SPEED * C_SPEED;
+
+            let mut eqn = FRShockEqn::new(
+                config.nwind,
+                config.nism,
+                gamma4,
+                mej,
+                eps4_init,
+                config.sigma,
+                0.1,  // eps_e_fwd placeholder
+                0.01, // eps_b_fwd placeholder
+                2.3,  // p_fwd placeholder
+                config.eps_e_rs,
+                config.eps_b_rs,
+                config.p_rs,
+                config.t0_injection,
+                config.l_injection,
+                config.m_dot_injection,
+                config.rtol,
+            );
+
+            let (cell_rs, cross_idx) = reverse_shock::solve_reverse_shock_cell(
+                &mut eqn,
+                tmin,
+                tmax,
+                config.rtol.max(1e-4), // RS ODE doesn't need ultra-tight tolerance
+                &self.ts,
+            );
+
+            crossing_indices[j] = cross_idx;
+
+            // Store data: cell_rs[var][it] → rs_data[var][j][it]
+            for var in 0..NVAR_RS {
+                rs_data[var][j] = cell_rs[var].clone();
+            }
+        }
+
+        self.ys_rs = Some(rs_data);
+        self.crossing_idx = crossing_indices;
     }
 
     fn solve_primitive(&mut self) {
@@ -364,14 +460,14 @@ impl SimBox {
     }
 
     fn one_step_rk2(&mut self, dt: f64) {
-        // Copy initial state
-        let conserved_ini: [Vec<f64>; 5] = [
-            self.eb.clone(),
-            self.ht.clone(),
-            self.msw.clone(),
-            self.mej.clone(),
-            self.r.clone(),
-        ];
+        // Save initial state into pre-allocated scratch (no heap allocation)
+        for j in 0..self.ntheta {
+            self.rk2_scratch[0][j] = self.eb[j];
+            self.rk2_scratch[1][j] = self.ht[j];
+            self.rk2_scratch[2][j] = self.msw[j];
+            self.rk2_scratch[3][j] = self.mej[j];
+            self.rk2_scratch[4][j] = self.r[j];
+        }
 
         // Step 1
         self.solve_slope();
@@ -394,11 +490,11 @@ impl SimBox {
         self.solve_dy_dt();
 
         for j in 0..self.ntheta {
-            self.eb[j] = 0.5 * conserved_ini[0][j] + 0.5 * self.eb[j] + 0.5 * dt * self.dy_dt[0][j];
-            self.ht[j] = 0.5 * conserved_ini[1][j] + 0.5 * self.ht[j] + 0.5 * dt * self.dy_dt[1][j];
-            self.msw[j] = 0.5 * conserved_ini[2][j] + 0.5 * self.msw[j] + 0.5 * dt * self.dy_dt[2][j];
-            self.mej[j] = 0.5 * conserved_ini[3][j] + 0.5 * self.mej[j] + 0.5 * dt * self.dy_dt[3][j];
-            self.r[j] = 0.5 * conserved_ini[4][j] + 0.5 * self.r[j] + 0.5 * dt * self.dy_dt[4][j];
+            self.eb[j] = 0.5 * self.rk2_scratch[0][j] + 0.5 * self.eb[j] + 0.5 * dt * self.dy_dt[0][j];
+            self.ht[j] = 0.5 * self.rk2_scratch[1][j] + 0.5 * self.ht[j] + 0.5 * dt * self.dy_dt[1][j];
+            self.msw[j] = 0.5 * self.rk2_scratch[2][j] + 0.5 * self.msw[j] + 0.5 * dt * self.dy_dt[2][j];
+            self.mej[j] = 0.5 * self.rk2_scratch[3][j] + 0.5 * self.mej[j] + 0.5 * dt * self.dy_dt[3][j];
+            self.r[j] = 0.5 * self.rk2_scratch[4][j] + 0.5 * self.r[j] + 0.5 * dt * self.dy_dt[4][j];
         }
         self.solve_primitive();
         self.solve_eigen();
@@ -604,8 +700,19 @@ impl SimBox {
         self.save_primitives();
     }
 
+    /// Maximum number of output time points saved from the PDE solver.
+    /// The CFL-limited spread solver may take ~30,000+ internal steps, but
+    /// we only need ~1000 log-spaced output points for accurate interpolation.
+    const MAX_OUTPUT_POINTS: usize = 1000;
+
     fn solve_spread(&mut self) {
         self.init_solution();
+
+        // Pre-compute log-spaced output schedule to avoid saving every CFL step
+        let log_tmin = self.tmin.ln();
+        let log_tmax = self.tmax.ln();
+        let d_log_t = (log_tmax - log_tmin) / Self::MAX_OUTPUT_POINTS as f64;
+        let mut next_save_log_t = log_tmin + d_log_t;
 
         let mut t = self.tmin;
         while t < self.tmax {
@@ -613,12 +720,335 @@ impl SimBox {
             self.one_step_rk2(dt);
             t += dt;
 
-            self.ts.push(t);
-            self.save_primitives();
+            // Only save at log-spaced intervals (or at the final step)
+            if t.ln() >= next_save_log_t || t >= self.tmax {
+                self.ts.push(t);
+                self.save_primitives();
+                // Advance past all crossed output times
+                while next_save_log_t <= t.ln() {
+                    next_save_log_t += d_log_t;
+                }
+            }
         }
     }
 
+    /// Check if all theta cells have identical initial conditions (tophat jet).
+    fn is_uniform_ics(&self) -> bool {
+        if self.ntheta <= 1 {
+            return true;
+        }
+        for i in 1..self.ntheta {
+            if (self.eb[i] - self.eb[0]).abs() > self.eb[0].abs() * 1e-12
+                || (self.msw[i] - self.msw[0]).abs() > self.msw[0].abs() * 1e-12
+                || (self.mej[i] - self.mej[0]).abs() > self.mej[0].abs().max(1e-30) * 1e-12
+                || (self.r[i] - self.r[0]).abs() > self.r[0].abs() * 1e-12
+            {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Number of state variables for the ODE spread solver.
+    /// State: [msw, mej, r, theta_cell, beta_gamma_sq]
+    const ODE_NVAR: usize = 5;
+
+    /// ODE right-hand side for a single cell with lateral spreading.
+    /// State: [msw, mej, r, theta_cell, beta_gamma_sq]
+    /// Evolves primitives directly — no root-finding needed.
+    fn ode_rhs_spread_cell(
+        &self,
+        state: &[f64; Self::ODE_NVAR],
+        theta0_i: f64,
+        theta_c: f64,
+    ) -> [f64; Self::ODE_NVAR] {
+        let msw = state[0];
+        let mej = state[1];
+        let r = state[2];
+        let theta_cell = state[3];
+        let bg_sq = state[4].max(0.0);
+
+        let gamma = (bg_sq + 1.0).sqrt();
+        let beta = (bg_sq / (bg_sq + 1.0)).sqrt();
+
+        // Forward shock velocity
+        let beta_f = 4.0 * beta * (bg_sq + 1.0) / (4.0 * bg_sq + 3.0);
+
+        // dr/dt
+        let dr_dt = beta_f * C_SPEED;
+
+        // Solid angle correction for mass sweeping
+        let cos_theta0 = theta0_i.cos();
+        let f_spread = if (1.0 - cos_theta0).abs() > 1e-30 {
+            (1.0 - theta_cell.cos()) / (1.0 - cos_theta0)
+        } else {
+            1.0
+        };
+
+        let rho = self.tool.solve_density(r) * MASS_P;
+        let source = dr_dt * rho * r * r * f_spread;
+        let dmsw_dt = source;
+        let dmej_dt = 0.0;
+
+        // Spreading: dθ/dt = F(u) · β_f · c / (2Γr)
+        let u = bg_sq.sqrt();
+        let theta_s = theta_cell.max(theta_c);
+        let f_suppress = 1.0 / (1.0 + 7.0 * u * theta_s);
+        let dtheta_dt = f_suppress * beta_f * C_SPEED / (2.0 * gamma * r);
+
+        // d(beta_gamma_sq)/dt from energy conservation:
+        // Eb = s * gamma² * (1 + beta⁴/3) * msw + (1-s)*gamma*msw + gamma*mej
+        // dEb/dt = source (same as dmsw/dt)
+        // d(bg_sq)/dt = [source*(1 - ∂Eb/∂msw) - (∂Eb/∂r)*dr/dt] / (∂Eb/∂bg_sq)
+        let s = self.tool.solve_s(r, bg_sq);
+        let beta_sq = bg_sq / (bg_sq + 1.0);
+        let beta4 = beta_sq * beta_sq;
+
+        // ∂Eb/∂msw
+        let deb_dmsw = s * (bg_sq + 1.0) * (1.0 + beta4 / 3.0) + (1.0 - s) * gamma;
+
+        // ∂Eb/∂r: only nonzero if s depends on r (wind medium)
+        // For generality, compute via finite difference (cheap — just 2 function evals)
+        let deb_dr = if self.tool.nwind_nonzero() {
+            let eps = r * 1e-8;
+            let s_plus = self.tool.solve_s(r + eps, bg_sq);
+            let s_minus = self.tool.solve_s(r - eps, bg_sq);
+            let ds_dr = (s_plus - s_minus) / (2.0 * eps);
+            ds_dr * ((bg_sq + 1.0) * (1.0 + beta4 / 3.0) - gamma) * msw
+        } else {
+            0.0
+        };
+
+        // ∂Eb/∂(bg_sq)
+        // d(gamma)/d(bg_sq) = 1/(2*gamma)
+        // d(beta⁴)/d(bg_sq) = 2*beta² / (1+bg_sq)² = 2*bg_sq/(1+bg_sq)³
+        let dgamma_du = 1.0 / (2.0 * gamma);
+        let dbeta4_du = 2.0 * bg_sq / ((bg_sq + 1.0) * (bg_sq + 1.0) * (bg_sq + 1.0));
+        let deb_du = s * (1.0 + beta4 / 3.0 + (bg_sq + 1.0) * dbeta4_du / 3.0) * msw
+            + (1.0 - s) * dgamma_du * msw
+            + dgamma_du * mej;
+
+        let dbg_sq_dt = if deb_du.abs() > 1e-60 {
+            (source * (1.0 - deb_dmsw) - deb_dr * dr_dt) / deb_du
+        } else {
+            0.0
+        };
+
+        [dmsw_dt, dmej_dt, dr_dt, dtheta_dt, dbg_sq_dt]
+    }
+
+    /// Adaptive RK45 step for a single spreading cell.
+    /// Returns (new_state, new_dt, succeeded).
+    fn ode_spread_step_rk45(
+        &self,
+        state: &[f64; Self::ODE_NVAR],
+        dt: f64,
+        theta0_i: f64,
+        theta_c: f64,
+        rtol: f64,
+    ) -> ([f64; Self::ODE_NVAR], f64, bool) {
+        const N: usize = SimBox::ODE_NVAR;
+
+        let k1 = self.ode_rhs_spread_cell(state, theta0_i, theta_c);
+
+        let mut s2 = [0.0; N];
+        for j in 0..N { s2[j] = state[j] + k1[j] * dt * 2.0 / 9.0; }
+        let k2 = self.ode_rhs_spread_cell(&s2, theta0_i, theta_c);
+
+        let mut s3 = [0.0; N];
+        for j in 0..N { s3[j] = state[j] + k1[j] * dt / 12.0 + k2[j] * dt / 4.0; }
+        let k3 = self.ode_rhs_spread_cell(&s3, theta0_i, theta_c);
+
+        let mut s4 = [0.0; N];
+        for j in 0..N {
+            s4[j] = state[j] + k1[j] * dt * 69.0 / 128.0
+                - k2[j] * dt * 243.0 / 128.0
+                + k3[j] * dt * 135.0 / 64.0;
+        }
+        let k4 = self.ode_rhs_spread_cell(&s4, theta0_i, theta_c);
+
+        let mut s5 = [0.0; N];
+        for j in 0..N {
+            s5[j] = state[j] - k1[j] * dt * 17.0 / 12.0
+                + k2[j] * dt * 27.0 / 4.0
+                - k3[j] * dt * 27.0 / 5.0
+                + k4[j] * dt * 16.0 / 15.0;
+        }
+        let k5 = self.ode_rhs_spread_cell(&s5, theta0_i, theta_c);
+
+        let mut s6 = [0.0; N];
+        for j in 0..N {
+            s6[j] = state[j] + k1[j] * dt * 65.0 / 432.0
+                - k2[j] * dt * 5.0 / 16.0
+                + k3[j] * dt * 13.0 / 16.0
+                + k4[j] * dt * 4.0 / 27.0
+                + k5[j] * dt * 5.0 / 144.0;
+        }
+        let k6 = self.ode_rhs_spread_cell(&s6, theta0_i, theta_c);
+
+        // 5th-order solution
+        let mut result = [0.0; N];
+        for j in 0..N {
+            result[j] = state[j]
+                + k1[j] * dt * 47.0 / 450.0
+                + k3[j] * dt * 12.0 / 25.0
+                + k4[j] * dt * 32.0 / 225.0
+                + k5[j] * dt / 30.0
+                + k6[j] * dt * 6.0 / 25.0;
+        }
+
+        // Error estimate
+        let mut rerror = 0.0f64;
+        for j in 0..N {
+            let error = (k1[j] * dt / 150.0
+                - k3[j] * dt * 3.0 / 100.0
+                + k4[j] * dt * 16.0 / 75.0
+                + k5[j] * dt / 20.0
+                - k6[j] * dt * 6.0 / 25.0)
+                .abs();
+            let scale = result[j].abs().max(1e-30);
+            rerror = rerror.max(error / scale);
+        }
+
+        let succeeded = rerror < rtol;
+        let boost = (0.9 * (rtol / rerror.max(1e-30)).powf(0.2)).min(1.5).max(0.2);
+        let new_dt = dt * boost;
+
+        if succeeded {
+            (result, new_dt, true)
+        } else {
+            (*state, new_dt, false)
+        }
+    }
+
+    /// Solve using per-cell ODE spreading (VegasAfterglow-style).
+    /// Each theta cell evolves independently with adaptive RK45.
+    /// Evolves primitive variables directly — no root-finding in the RHS.
+    fn solve_ode_spread(&mut self) {
+        let real_ntheta = self.ntheta;
+        let is_tophat = real_ntheta > 1 && self.is_uniform_ics();
+        let solve_ntheta = if is_tophat { 1 } else { real_ntheta };
+
+        // Pre-compute log-spaced output times
+        let log_tmin = self.tmin.ln();
+        let log_tmax = self.tmax.ln();
+        let n_output = Self::MAX_OUTPUT_POINTS;
+        let mut output_times = Vec::with_capacity(n_output + 1);
+        output_times.push(self.tmin);
+        for k in 1..=n_output {
+            let log_t = log_tmin + (log_tmax - log_tmin) * k as f64 / n_output as f64;
+            output_times.push(log_t.exp());
+        }
+        let nt = output_times.len();
+
+        // Initialize output: ys[5][ntheta][nt]
+        let mut ys = vec![vec![vec![0.0; nt]; real_ntheta]; 5];
+        let ts = output_times.clone();
+
+        let theta_c = self.theta_c;
+        let rtol = 1e-6;
+
+        // Solve each cell independently
+        for i in 0..solve_ntheta {
+            let theta0_i = self.theta[i];
+
+            // Initial state: [msw, mej, r, theta_cell, beta_gamma_sq]
+            let mut state = [
+                self.msw[i],
+                self.mej[i],
+                self.r[i],
+                theta0_i,
+                self.beta_gamma_sq[i],
+            ];
+
+            // Save initial primitives
+            let bt = self.compute_beta_th_from_state(&state, theta0_i);
+            ys[0][i][0] = state[0]; // msw
+            ys[1][i][0] = state[1]; // mej
+            ys[2][i][0] = state[4]; // beta_gamma_sq
+            ys[3][i][0] = bt;       // beta_th
+            ys[4][i][0] = state[2]; // r
+
+            let mut t = self.tmin;
+            let mut dt = (self.tmax - self.tmin) * 1e-4;
+            let mut save_idx = 1;
+
+            while t < self.tmax && save_idx < nt {
+                let dt_max = (output_times[save_idx] - t).min(self.tmax - t + 1e-6);
+                dt = dt.min(dt_max);
+
+                let (new_state, new_dt, succeeded) =
+                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol);
+
+                if succeeded {
+                    t += dt;
+                    state = new_state;
+                    state[3] = state[3].max(0.0).min(PI); // clamp theta
+                    state[4] = state[4].max(0.0);         // clamp bg_sq
+
+                    while save_idx < nt && output_times[save_idx] <= t + 1e-10 {
+                        let bt = self.compute_beta_th_from_state(&state, theta0_i);
+                        ys[0][i][save_idx] = state[0]; // msw
+                        ys[1][i][save_idx] = state[1]; // mej
+                        ys[2][i][save_idx] = state[4]; // beta_gamma_sq
+                        ys[3][i][save_idx] = bt;
+                        ys[4][i][save_idx] = state[2]; // r
+                        save_idx += 1;
+                    }
+
+                    dt = new_dt;
+                } else {
+                    dt = new_dt;
+                }
+            }
+
+            while save_idx < nt {
+                let bt = self.compute_beta_th_from_state(&state, theta0_i);
+                ys[0][i][save_idx] = state[0];
+                ys[1][i][save_idx] = state[1];
+                ys[2][i][save_idx] = state[4];
+                ys[3][i][save_idx] = bt;
+                ys[4][i][save_idx] = state[2];
+                save_idx += 1;
+            }
+        }
+
+        if is_tophat {
+            for var in 0..5 {
+                let template = ys[var][0].clone();
+                ys[var] = vec![template; real_ntheta];
+            }
+        }
+
+        self.ys = ys;
+        self.ts = ts;
+    }
+
+    /// Compute beta_th from ODE state for saving.
+    fn compute_beta_th_from_state(&self, state: &[f64; Self::ODE_NVAR], _theta0_i: f64) -> f64 {
+        let r = state[2];
+        let theta_cell = state[3];
+        let bg_sq = state[4].max(0.0);
+
+        let gamma = (bg_sq + 1.0).sqrt();
+        let beta = (bg_sq / (bg_sq + 1.0)).sqrt();
+        let beta_f = 4.0 * beta * (bg_sq + 1.0) / (4.0 * bg_sq + 3.0);
+        let u = bg_sq.sqrt();
+        let theta_s = theta_cell.max(self.theta_c);
+        let f_suppress = 1.0 / (1.0 + 7.0 * u * theta_s);
+        let dtheta_dt = f_suppress * beta_f * C_SPEED / (2.0 * gamma * r);
+        r * dtheta_dt / C_SPEED
+    }
+
     fn solve_no_spread(&mut self) {
+        // For tophat jets (uniform ICs), all cells evolve identically in no-spread mode.
+        // Solve just 1 cell and replicate — up to ntheta× speedup.
+        let real_ntheta = self.ntheta;
+        let is_tophat = real_ntheta > 1 && self.is_uniform_ics();
+        if is_tophat {
+            self.ntheta = 1;
+        }
+
         self.init_solution();
 
         let mut delta_t = 1.0;
@@ -635,6 +1065,15 @@ impl SimBox {
                 self.save_primitives();
             } else {
                 delta_t = dt;
+            }
+        }
+
+        // Replicate single-cell solution to all theta cells
+        if is_tophat {
+            self.ntheta = real_ntheta;
+            for var in 0..5 {
+                let template = self.ys[var][0].clone();
+                self.ys[var] = vec![template; real_ntheta];
             }
         }
     }

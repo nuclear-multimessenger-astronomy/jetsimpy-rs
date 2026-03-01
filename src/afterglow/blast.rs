@@ -1,3 +1,16 @@
+/// Which shock region this blast element represents.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ShockType {
+    Forward,
+    Reverse,
+}
+
+impl Default for ShockType {
+    fn default() -> Self {
+        ShockType::Forward
+    }
+}
+
 /// Blast fluid element properties.
 #[derive(Clone, Default)]
 pub struct Blast {
@@ -26,4 +39,13 @@ pub struct Blast {
     pub pressure: f64,
     pub n_ambient: f64,
     pub dr: f64,
+
+    // shock type
+    pub shock_type: ShockType,
+
+    // reverse shock specific fields
+    pub gamma_th3: f64,    // thermal Lorentz factor in region 3
+    pub b3: f64,           // magnetic field in region 3
+    pub n3: f64,           // number density in region 3
+    pub t_comv: f64,       // comoving time
 }

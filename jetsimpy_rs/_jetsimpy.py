@@ -22,9 +22,18 @@ class Jet:
         grid=Uniform(257),    # [cell edge angles]: start with 0 and end with pi.
         tail=True,            # [isotropic tail]: add an extremely low energy low velocity isotropic tail for safty
         spread=True,          # [spreading]: spread or not
+        spread_mode=None,     # [spread mode]: "none", "ode" (VegasAfterglow-style), or "pde" (finite-volume). Overrides spread if set.
         cal_level=1,          # [calibration level]: 0: no calibration. 1: BM all time. 2: smoothly go from BM to ST (ST is dangerous)
         rtol=1e-6,            # [primitive variable solver tolerance]: Don't change it unless you know what is going on.
         cfl=0.9,              # [cfl number]: Don't change it unless you know what is going on.
+        include_reverse_shock=False,  # [reverse shock]: include reverse shock dynamics and emission
+        sigma=0.0,            # [magnetization]: ejecta magnetization parameter
+        eps_e_rs=0.1,         # [RS electron energy fraction]
+        eps_b_rs=0.01,        # [RS magnetic energy fraction]
+        p_rs=2.3,             # [RS electron spectral index]
+        t0_injection=0.0,     # [energy injection timescale]: (s)
+        l_injection=0.0,      # [energy injection luminosity]: (erg/s)
+        m_dot_injection=0.0,  # [mass injection rate]: (g/s)
     ):
         # save
         theta, energy, lf = profiles
@@ -40,7 +49,16 @@ class Jet:
         self.grid = grid
         self.tail = tail
         self.spread = spread
+        self.spread_mode = spread_mode
         self.cal_level = cal_level
+        self.include_reverse_shock = include_reverse_shock
+        self.sigma = sigma
+        self.eps_e_rs = eps_e_rs
+        self.eps_b_rs = eps_b_rs
+        self.p_rs = p_rs
+        self.t0_injection = t0_injection
+        self.l_injection = l_injection
+        self.m_dot_injection = m_dot_injection
 
         # solve jet
         jet_config = self._configJet()
@@ -128,6 +146,28 @@ class Jet:
         
         return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
     
+    # flux density from forward shock only [mJy]
+    def FluxDensity_forward(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+        self._jet.configParameters(P)
+        if isinstance(model, str):
+            self._jet.configIntensity(model)
+        else:
+            self._jet.configIntensityPy(model)
+
+        L = self._jet.calculateLuminosityForward(t, nu, rtol, max_iter, force_return)
+        return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+
+    # flux density from reverse shock only [mJy]
+    def FluxDensity_reverse(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+        self._jet.configParameters(P)
+        if isinstance(model, str):
+            self._jet.configIntensity(model)
+        else:
+            self._jet.configIntensityPy(model)
+
+        L = self._jet.calculateLuminosityReverse(t, nu, rtol, max_iter, force_return)
+        return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+
     # flux [erg/s/cm^2]
     def Flux(self, t, nu1, nu2, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
         # config parameters
@@ -232,7 +272,22 @@ class Jet:
         jet_config.rtol = self.rtol
         jet_config.cfl = self.cfl
         jet_config.spread = self.spread
+        # Determine spread_mode: explicit setting takes precedence over bool
+        if self.spread_mode is not None:
+            jet_config.spread_mode = self.spread_mode
+            jet_config.spread = (self.spread_mode != "none")
+        else:
+            jet_config.spread_mode = "pde" if self.spread else "none"
+            jet_config.spread = self.spread
         jet_config.cal_level = self.cal_level
+        jet_config.include_reverse_shock = self.include_reverse_shock
+        jet_config.sigma = self.sigma
+        jet_config.eps_e_rs = self.eps_e_rs
+        jet_config.eps_b_rs = self.eps_b_rs
+        jet_config.p_rs = self.p_rs
+        jet_config.t0_injection = self.t0_injection
+        jet_config.l_injection = self.l_injection
+        jet_config.m_dot_injection = self.m_dot_injection
 
         # generate grid
         theta_edge = self.grid
@@ -243,6 +298,11 @@ class Jet:
         if self.tail:
             self.energy_data[self.energy_data <= np.max(self.energy_data) * 1e-12] = np.max(self.energy_data) * 1e-12
             self.lf_data[self.lf_data <= 1.005] = 1.005
+
+        # Estimate theta_c from the energy profile: angle where E drops to 1/e of peak
+        e_peak = np.max(self.energy_data)
+        above_threshold = self.theta_data[self.energy_data > e_peak / np.e]
+        jet_config.theta_c = float(above_threshold[-1]) if len(above_threshold) > 0 else 0.1
 
         # interpolate initial condition to grid points
         E0 = np.interp(theta, self.theta_data, self.energy_data / 4.0 / np.pi / _C ** 2.0)

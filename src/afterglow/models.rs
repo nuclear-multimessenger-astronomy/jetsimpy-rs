@@ -1,9 +1,42 @@
 use std::collections::HashMap;
 use crate::constants::*;
-use crate::afterglow::blast::Blast;
+use crate::afterglow::blast::{Blast, ShockType};
 
 pub type Dict = HashMap<String, f64>;
 pub type RadiationModel = fn(nu: f64, p: &Dict, blast: &Blast) -> f64;
+
+/// Compute synchrotron characteristic quantities.
+/// For forward shock: derives B, n from blast.e_density, blast.n_blast, blast.gamma, blast.t.
+/// For reverse shock: uses pre-computed blast.b3, blast.n3, blast.gamma_th3, blast.t_comv.
+fn sync_params(eps_e: f64, eps_b: f64, p_val: f64, blast: &Blast) -> (f64, f64, f64, f64, f64, f64) {
+    match blast.shock_type {
+        ShockType::Forward => {
+            let n_blast = blast.n_blast;
+            let t = blast.t;
+            let gamma = blast.gamma;
+            let e = blast.e_density;
+
+            let gamma_m = (p_val - 2.0) / (p_val - 1.0) * (eps_e * MASS_P / MASS_E * (gamma - 1.0));
+            let b = (8.0 * PI * eps_b * e).sqrt();
+            let gamma_c = 6.0 * PI * MASS_E * gamma * C_SPEED / SIGMA_T / b / b / t;
+            (gamma_m, gamma_c, b, n_blast, blast.dr, 1.0)
+        }
+        ShockType::Reverse => {
+            let b = blast.b3;
+            let n3 = blast.n3;
+            let gamma_th3 = blast.gamma_th3;
+            let t_comv = blast.t_comv;
+
+            if b <= 0.0 || n3 <= 0.0 || gamma_th3 <= 1.0 || t_comv <= 0.0 {
+                return (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+            }
+
+            let gamma_m = (p_val - 2.0) / (p_val - 1.0) * eps_e * (gamma_th3 - 1.0) * MASS_P / MASS_E + 1.0;
+            let gamma_c = (6.0 * PI * MASS_E * C_SPEED / (SIGMA_T * b * b * t_comv)).max(1.0);
+            (gamma_m, gamma_c, b, n3, blast.dr, 1.0)
+        }
+    }
+}
 
 /// Standard synchrotron model (Sari 1998).
 pub fn sync(nu: f64, p: &Dict, blast: &Blast) -> f64 {
@@ -11,14 +44,11 @@ pub fn sync(nu: f64, p: &Dict, blast: &Blast) -> f64 {
     let eps_b = *p.get("eps_b").expect("sync requires 'eps_b'");
     let p_val = *p.get("p").expect("sync requires 'p'");
 
-    let n_blast = blast.n_blast;
-    let t = blast.t;
-    let gamma = blast.gamma;
-    let e = blast.e_density;
+    let (gamma_m, gamma_c, b, n_blast, dr, _f) = sync_params(eps_e, eps_b, p_val, blast);
+    if b <= 0.0 || n_blast <= 0.0 || dr <= 0.0 {
+        return 0.0;
+    }
 
-    let gamma_m = (p_val - 2.0) / (p_val - 1.0) * (eps_e * MASS_P / MASS_E * (gamma - 1.0));
-    let b = (8.0 * PI * eps_b * e).sqrt();
-    let gamma_c = 6.0 * PI * MASS_E * gamma * C_SPEED / SIGMA_T / b / b / t;
     let nu_m = 3.0 * E_CHARGE * b * gamma_m * gamma_m / 4.0 / PI / C_SPEED / MASS_E;
     let nu_c = 3.0 * E_CHARGE * b * gamma_c * gamma_c / 4.0 / PI / C_SPEED / MASS_E;
     let e_p = 3.0_f64.sqrt() * E_CHARGE * E_CHARGE * E_CHARGE * b * n_blast
@@ -44,7 +74,7 @@ pub fn sync(nu: f64, p: &Dict, blast: &Blast) -> f64 {
         }
     };
 
-    emissivity * blast.dr
+    emissivity * dr
 }
 
 /// Synchrotron with deep Newtonian phase correction.
@@ -53,19 +83,22 @@ pub fn sync_dnp(nu: f64, p: &Dict, blast: &Blast) -> f64 {
     let eps_b = *p.get("eps_b").expect("sync_dnp requires 'eps_b'");
     let p_val = *p.get("p").expect("sync_dnp requires 'p'");
 
-    let n_blast = blast.n_blast;
-    let t = blast.t;
-    let gamma = blast.gamma;
-    let e = blast.e_density;
+    let (mut gamma_m, gamma_c, b, n_blast, dr, _) = sync_params(eps_e, eps_b, p_val, blast);
+    if b <= 0.0 || n_blast <= 0.0 || dr <= 0.0 {
+        return 0.0;
+    }
 
-    let mut gamma_m = (p_val - 2.0) / (p_val - 1.0) * eps_e * MASS_P / MASS_E * (gamma - 1.0);
     let mut f = 1.0;
     if gamma_m <= 1.0 {
-        f = (p_val - 2.0) / (p_val - 1.0) * eps_e * MASS_P / MASS_E * (gamma - 1.0);
+        // Deep Newtonian correction: the original forward-shock formula
+        if blast.shock_type == ShockType::Forward {
+            f = (p_val - 2.0) / (p_val - 1.0) * eps_e * MASS_P / MASS_E * (blast.gamma - 1.0);
+        } else {
+            f = (p_val - 2.0) / (p_val - 1.0) * eps_e * (blast.gamma_th3 - 1.0) * MASS_P / MASS_E;
+        }
         gamma_m = 1.0;
     }
-    let b = (8.0 * PI * eps_b * e).sqrt();
-    let gamma_c = 6.0 * PI * MASS_E * gamma * C_SPEED / SIGMA_T / b / b / t;
+
     let nu_m = 3.0 * E_CHARGE * b * gamma_m * gamma_m / 4.0 / PI / C_SPEED / MASS_E;
     let nu_c = 3.0 * E_CHARGE * b * gamma_c * gamma_c / 4.0 / PI / C_SPEED / MASS_E;
     let e_p = 3.0_f64.sqrt() * E_CHARGE * E_CHARGE * E_CHARGE * b * f * n_blast
@@ -91,7 +124,7 @@ pub fn sync_dnp(nu: f64, p: &Dict, blast: &Blast) -> f64 {
         }
     };
 
-    emissivity * blast.dr
+    emissivity * dr
 }
 
 /// Weighted average model: offset.
@@ -121,6 +154,8 @@ pub fn get_radiation_model(name: &str) -> Option<RadiationModel> {
     match name {
         "sync" => Some(sync),
         "sync_dnp" => Some(sync_dnp),
+        "sync_ssa" => Some(crate::afterglow::ssa::sync_ssa),
+        "sync_ssc" => Some(crate::afterglow::inverse_compton::sync_ssc),
         _ => None,
     }
 }
@@ -203,6 +238,7 @@ mod tests {
             pressure: 1e-3,
             n_ambient: 1.0,
             dr: 1e15,
+            ..Blast::default()
         }
     }
 

@@ -399,6 +399,83 @@ impl EATS {
         }
     }
 
+    /// Solve blast for reverse shock.
+    /// Uses forward shock EATS (same arrival time surface) but populates
+    /// RS-specific fields from rs_data.
+    pub fn solve_blast_reverse(
+        &self,
+        tobs_z: f64,
+        theta: f64,
+        phi: f64,
+        theta_v: f64,
+        y_data: &[Vec<Vec<f64>>],  // forward shock data
+        rs_data: &[Vec<Vec<f64>>], // reverse shock data [NVAR_RS][ntheta][nt]
+        t_data: &[f64],
+        theta_data: &[f64],
+        tool: &Tool,
+        blast: &mut Blast,
+    ) -> bool {
+        // First solve the forward EATS to get time and geometry
+        if !self.solve_blast(tobs_z, theta, phi, theta_v, y_data, t_data, theta_data, tool, blast) {
+            return false;
+        }
+
+        // Now interpolate RS variables at the same (t, theta) point
+        let t = blast.t;
+        let (theta_idx1, theta_idx2) = self.find_theta_index(theta, theta_data, tool);
+
+        // Find time indices
+        let t_idx = tool.find_index(t_data, t.min(t_data[t_data.len() - 1]).max(t_data[0]));
+
+        // Interpolate RS state: [0]=Gamma, [1]=r_rs, [2]=m3, [3]=x3, [4]=u3_th,
+        //                       [5]=t_comv, [6]=gamma_th3, [7]=b3, [8]=n3
+        let interp_rs = |var: usize| -> f64 {
+            if var >= rs_data.len() { return 0.0; }
+            let y11 = rs_data[var][theta_idx1][t_idx.0];
+            let y12 = if theta_idx2 < rs_data[var].len() { rs_data[var][theta_idx2][t_idx.0] } else { y11 };
+            let y21 = rs_data[var][theta_idx1][t_idx.1];
+            let y22 = if theta_idx2 < rs_data[var].len() { rs_data[var][theta_idx2][t_idx.1] } else { y21 };
+
+            let y1 = if theta_idx1 == theta_idx2 { y11 } else {
+                tool.linear(theta, theta_data[theta_idx1], theta_data[theta_idx2], y11, y12)
+            };
+            let y2 = if theta_idx1 == theta_idx2 { y21 } else {
+                tool.linear(theta, theta_data[theta_idx1], theta_data[theta_idx2], y21, y22)
+            };
+            if t_idx.0 == t_idx.1 { y1 } else {
+                tool.linear(t, t_data[t_idx.0], t_data[t_idx.1], y1, y2)
+            }
+        };
+
+        blast.shock_type = crate::afterglow::blast::ShockType::Reverse;
+        blast.gamma_th3 = interp_rs(6);
+        blast.b3 = interp_rs(7);
+        blast.n3 = interp_rs(8);
+        blast.t_comv = interp_rs(5);
+
+        // RS-specific thermodynamic quantities
+        let m3 = interp_rs(2);
+        let x3 = interp_rs(3);
+        let u3_th = interp_rs(4);
+
+        // Number density and energy density in region 3
+        blast.n_blast = blast.n3;
+        if blast.gamma_th3 > 1.0 {
+            blast.e_density = (blast.gamma_th3 - 1.0) * blast.n3 * MASS_P * C_SPEED * C_SPEED;
+        } else {
+            blast.e_density = 0.0;
+        }
+
+        // Shell width = x3 (comoving) / Γ (to lab frame approx)
+        if blast.n3 > 0.0 && blast.r > 0.0 {
+            blast.dr = m3 / (blast.r * blast.r * blast.n3 * MASS_P);
+        } else {
+            blast.dr = 0.0;
+        }
+
+        true
+    }
+
     /// Simply solve EATS time. Returns NaN if observing time exceeds PDE max.
     pub fn solve_eats(
         &self,
