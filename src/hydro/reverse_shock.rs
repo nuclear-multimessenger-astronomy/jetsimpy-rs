@@ -811,8 +811,9 @@ impl FRShockEqn {
 /// - reverse_ys[var][it] are the reverse shock state variables
 ///
 /// reverse_ys layout: [0]=Gamma, [1]=r_rs, [2]=m3, [3]=x3, [4]=u3_th,
-///                    [5]=t_comv, [6]=gamma_th3, [7]=b3, [8]=n3
-pub const NVAR_RS: usize = 9;
+///                    [5]=t_comv, [6]=gamma_th3, [7]=b3, [8]=n3,
+///                    [9]=gamma34, [10]=n4
+pub const NVAR_RS: usize = 11;
 
 /// Solve the reverse shock ODE for a single theta cell.
 /// Returns (rs_vars[NVAR_RS][nt], crossing_idx) for each saved timestep.
@@ -952,6 +953,9 @@ fn save_rs_state(
     rs_out[6].push(gamma_th3);
     rs_out[7].push(b3);
     rs_out[8].push(n3);
+    rs_out[9].push(gamma34);
+    let n4 = if rho4 > 0.0 { rho4 / MASS_P } else { 0.0 };
+    rs_out[10].push(n4);
 }
 
 /// Power-law back-extrapolation for early-time zeros in RS data.

@@ -48,4 +48,6 @@ pub struct Blast {
     pub b3: f64,           // magnetic field in region 3
     pub n3: f64,           // number density in region 3
     pub t_comv: f64,       // comoving time
+    pub gamma34: f64,      // relative Lorentz factor between regions 4 and 3
+    pub n4_upstream: f64,  // upstream ejecta number density (region 4)
 }

@@ -13,6 +13,7 @@ use jetsimpy_rs::hydro::interpolate::Interpolator;
 use jetsimpy_rs::hydro::tools::Tool;
 use jetsimpy_rs::afterglow::eats::EATS;
 use jetsimpy_rs::afterglow::afterglow::Afterglow;
+use jetsimpy_rs::afterglow::forward_grid::ForwardGrid;
 
 /// Build a top-hat jet config matching the Python quick-start example.
 fn tophat_config() -> JetConfig {
@@ -612,5 +613,190 @@ fn test_ode_vs_pde_spread_agreement() {
                 tobs, l_pde, l_ode, log_diff,
             );
         }
+    }
+}
+
+// ─── Forward-mapping tests ───
+
+#[test]
+fn test_forward_grid_luminosity_positive_and_finite() {
+    let config = tophat_config();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param.clone());
+    afterglow.config_intensity("sync");
+
+    let nu = 1e18;
+    let z = 0.1;
+    let nu_z = nu * (1.0 + z);
+
+    let grid = ForwardGrid::precompute(
+        nu_z, 0.0, &sim.ys, &sim.ts, &theta,
+        &eats, &tool, &param, afterglow.radiation_model.unwrap(),
+    );
+
+    // Compute luminosity at 1 day
+    let tobs_z = 86400.0 * (1.0 + z);
+    let luminosity = grid.luminosity(tobs_z);
+
+    assert!(luminosity > 0.0, "Forward grid luminosity should be positive, got {}", luminosity);
+    assert!(luminosity.is_finite(), "Forward grid luminosity should be finite");
+    assert!(luminosity > 1e20, "Forward grid luminosity suspiciously low: {:.3e}", luminosity);
+    assert!(luminosity < 1e55, "Forward grid luminosity suspiciously high: {:.3e}", luminosity);
+}
+
+#[test]
+fn test_forward_grid_agrees_with_eats() {
+    // Forward-mapping and EATS should agree within 0.1 dex for on-axis PDE
+    let config = tophat_config();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param.clone());
+    afterglow.config_intensity("sync");
+
+    let nu = 1e18;
+    let z = 0.1;
+    let nu_z = nu * (1.0 + z);
+
+    let grid = ForwardGrid::precompute(
+        nu_z, 0.0, &sim.ys, &sim.ts, &theta,
+        &eats, &tool, &param, afterglow.radiation_model.unwrap(),
+    );
+
+    // Compare at several observation times.
+    // Tolerance is 0.3 dex per point; individual early times can deviate more
+    // than the aggregate max across a lightcurve (which is ~0.002 dex for PDE).
+    for &tobs in &[1e4, 86400.0, 86400.0 * 10.0, 86400.0 * 100.0] {
+        let l_eats = afterglow.luminosity(
+            tobs, nu, 1e-3, 50, true,
+            &eats, &sim.ys, &sim.ts, &theta, &tool,
+        );
+        let l_fwd = grid.luminosity(tobs * (1.0 + z));
+
+        if l_eats > 0.0 && l_fwd > 0.0 {
+            let log_diff = (l_eats.log10() - l_fwd.log10()).abs();
+            assert!(
+                log_diff < 0.3,
+                "Forward vs EATS differ by > 0.3 dex at t={:.0e}: EATS={:.3e}, Forward={:.3e} (diff={:.4} dex)",
+                tobs, l_eats, l_fwd, log_diff,
+            );
+        }
+    }
+}
+
+#[test]
+fn test_forward_grid_decays_at_late_times() {
+    let config = tophat_config();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param.clone());
+    afterglow.config_intensity("sync");
+
+    let nu = 1e18;
+    let z = 0.1;
+    let nu_z = nu * (1.0 + z);
+
+    let grid = ForwardGrid::precompute(
+        nu_z, 0.0, &sim.ys, &sim.ts, &theta,
+        &eats, &tool, &param, afterglow.radiation_model.unwrap(),
+    );
+
+    let l_early = grid.luminosity(86400.0 * (1.0 + z));
+    let l_late = grid.luminosity(86400.0 * 100.0 * (1.0 + z));
+
+    assert!(
+        l_early > l_late,
+        "On-axis X-ray flux should decay: L(1d) = {:.3e}, L(100d) = {:.3e}",
+        l_early, l_late,
+    );
+}
+
+#[test]
+fn test_forward_grid_ode_spread() {
+    // Forward-mapping should also work with ODE spreading mode
+    let config = tophat_config_ode();
+    let mut sim = SimBox::new(&config);
+    sim.solve_pde();
+
+    let theta = sim.get_theta().clone();
+    let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+    let eats = EATS::new(&theta, &sim.ts);
+    let mut afterglow = Afterglow::new();
+
+    let mut param = HashMap::new();
+    param.insert("eps_e".into(), 0.1);
+    param.insert("eps_b".into(), 0.01);
+    param.insert("p".into(), 2.17);
+    param.insert("theta_v".into(), 0.0);
+    param.insert("d".into(), 474.33);
+    param.insert("z".into(), 0.1);
+    afterglow.config_parameters(param.clone());
+    afterglow.config_intensity("sync");
+
+    let nu = 1e18;
+    let z = 0.1;
+    let nu_z = nu * (1.0 + z);
+
+    let grid = ForwardGrid::precompute(
+        nu_z, 0.0, &sim.ys, &sim.ts, &theta,
+        &eats, &tool, &param, afterglow.radiation_model.unwrap(),
+    );
+
+    let tobs = 86400.0;
+    let l_fwd = grid.luminosity(tobs * (1.0 + z));
+    let l_eats = afterglow.luminosity(
+        tobs, nu, 1e-3, 50, true,
+        &eats, &sim.ys, &sim.ts, &theta, &tool,
+    );
+
+    assert!(l_fwd > 0.0, "ODE forward grid luminosity should be positive");
+    assert!(l_fwd.is_finite(), "ODE forward grid luminosity should be finite");
+
+    if l_eats > 0.0 && l_fwd > 0.0 {
+        let log_diff = (l_eats.log10() - l_fwd.log10()).abs();
+        assert!(
+            log_diff < 0.3,
+            "ODE: Forward vs EATS differ by > 0.3 dex: EATS={:.3e}, Forward={:.3e} (diff={:.4} dex)",
+            l_eats, l_fwd, log_diff,
+        );
     }
 }

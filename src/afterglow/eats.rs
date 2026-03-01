@@ -119,7 +119,7 @@ impl EATS {
         Some(val)
     }
 
-    fn derive_blast(
+    pub fn derive_blast(
         &self,
         theta: f64,
         phi: f64,
@@ -428,7 +428,8 @@ impl EATS {
         let t_idx = tool.find_index(t_data, t.min(t_data[t_data.len() - 1]).max(t_data[0]));
 
         // Interpolate RS state: [0]=Gamma, [1]=r_rs, [2]=m3, [3]=x3, [4]=u3_th,
-        //                       [5]=t_comv, [6]=gamma_th3, [7]=b3, [8]=n3
+        //                       [5]=t_comv, [6]=gamma_th3, [7]=b3, [8]=n3,
+        //                       [9]=gamma34, [10]=n4
         let interp_rs = |var: usize| -> f64 {
             if var >= rs_data.len() { return 0.0; }
             let y11 = rs_data[var][theta_idx1][t_idx.0];
@@ -452,6 +453,8 @@ impl EATS {
         blast.b3 = interp_rs(7);
         blast.n3 = interp_rs(8);
         blast.t_comv = interp_rs(5);
+        blast.gamma34 = interp_rs(9);
+        blast.n4_upstream = interp_rs(10);
 
         // RS-specific thermodynamic quantities
         let m3 = interp_rs(2);

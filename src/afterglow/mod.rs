@@ -4,3 +4,5 @@ pub mod models;
 pub mod afterglow;
 pub mod ssa;
 pub mod inverse_compton;
+pub mod forward_grid;
+pub mod thermal;

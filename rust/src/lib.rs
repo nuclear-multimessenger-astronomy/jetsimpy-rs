@@ -155,6 +155,7 @@ use jetsimpy_rs::hydro::tools::Tool;
 use jetsimpy_rs::afterglow::blast::Blast;
 use jetsimpy_rs::afterglow::eats::EATS;
 use jetsimpy_rs::afterglow::afterglow::Afterglow;
+use jetsimpy_rs::afterglow::forward_grid::ForwardGrid;
 
 #[pymodule]
 fn jetsimpy_extension(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -307,6 +308,7 @@ struct JetInner {
     eats: EATS,
     afterglow: Afterglow,
     include_reverse_shock: bool,
+    flux_method: String,
 }
 
 // SAFETY: JetInner only contains owned, immutable-after-construction data.
@@ -366,6 +368,7 @@ impl PyJet {
             eats,
             afterglow,
             include_reverse_shock: include_rs,
+            flux_method: String::new(),
         });
         Ok(())
     }
@@ -512,6 +515,14 @@ impl PyJet {
         ))
     }
 
+    fn configFluxMethod(&mut self, method: &str) -> PyResult<()> {
+        let inner = self.inner.as_mut().ok_or_else(|| {
+            PyRuntimeError::new_err("solveJet() must be called first")
+        })?;
+        inner.flux_method = method.to_string();
+        Ok(())
+    }
+
     // ---------- Afterglow calculations ----------
 
     fn calculateEATS(&self, tobs: PyObject, theta: PyObject, phi: PyObject, theta_v: PyObject, z: PyObject, py: Python) -> PyResult<PyObject> {
@@ -598,34 +609,80 @@ impl PyJet {
 
         let has_rs = inner.include_reverse_shock && inner.ys_rs.is_some();
 
+        // Use forward-mapping when: method is "forward", on-axis, and no reverse shock
+        let use_forward = inner.flux_method == "forward"
+            && inner.afterglow.theta_v.abs() < 1e-6
+            && !has_rs;
+
         let n = broadcast_len(&[&tobs, &nu, &rtol], py)?;
         if let Some(n) = n {
             let (t_s, _) = extract_broadcast(&tobs, py, Some(n))?;
             let (nu_s, _) = extract_broadcast(&nu, py, Some(n))?;
             let (rtol_s, _) = extract_broadcast(&rtol, py, Some(n))?;
 
-            let mut results: Vec<f64> = py.allow_threads(|| {
-                (0..n)
-                    .into_par_iter()
-                    .map(|i| {
-                        if has_rs {
-                            inner.afterglow.luminosity_total(
-                                t_s[i], nu_s[i], rtol_s[i],
-                                max_iter as usize, force_return,
-                                &inner.eats, &inner.ys,
-                                inner.ys_rs.as_ref().unwrap(),
-                                &inner.ts, &inner.theta, &inner.tool,
-                            )
-                        } else {
-                            inner.afterglow.luminosity(
-                                t_s[i], nu_s[i], rtol_s[i],
-                                max_iter as usize, force_return,
-                                &inner.eats, &inner.ys, &inner.ts, &inner.theta, &inner.tool,
-                            )
+            let mut results: Vec<f64> = if use_forward {
+                let z = inner.afterglow.z;
+                let theta_v = inner.afterglow.theta_v;
+                let radiation_model = inner.afterglow.radiation_model.unwrap();
+                let param = &inner.afterglow.param;
+
+                py.allow_threads(|| {
+                    // Fast path: single frequency (common case)
+                    let all_same_nu = n <= 1 || nu_s.windows(2).all(|w| w[0] == w[1]);
+
+                    if all_same_nu {
+                        let nu_z = nu_s[0] * (1.0 + z);
+                        let grid = ForwardGrid::precompute(
+                            nu_z, theta_v, &inner.ys, &inner.ts, &inner.theta,
+                            &inner.eats, &inner.tool, param, radiation_model,
+                        );
+                        t_s.iter()
+                            .map(|&t| grid.luminosity(t / (1.0 + z)))
+                            .collect()
+                    } else {
+                        // Multi-frequency: one grid per unique nu
+                        let mut results = vec![0.0f64; n];
+                        let mut grids: HashMap<u64, ForwardGrid> = HashMap::new();
+                        for i in 0..n {
+                            let bits = nu_s[i].to_bits();
+                            let grid = grids.entry(bits).or_insert_with(|| {
+                                let nu_z = nu_s[i] * (1.0 + z);
+                                ForwardGrid::precompute(
+                                    nu_z, theta_v, &inner.ys, &inner.ts,
+                                    &inner.theta, &inner.eats, &inner.tool,
+                                    param, radiation_model,
+                                )
+                            });
+                            results[i] = grid.luminosity(t_s[i] / (1.0 + z));
                         }
-                    })
-                    .collect()
-            });
+                        results
+                    }
+                })
+            } else {
+                py.allow_threads(|| {
+                    (0..n)
+                        .into_par_iter()
+                        .map(|i| {
+                            if has_rs {
+                                inner.afterglow.luminosity_total(
+                                    t_s[i], nu_s[i], rtol_s[i],
+                                    max_iter as usize, force_return,
+                                    &inner.eats, &inner.ys,
+                                    inner.ys_rs.as_ref().unwrap(),
+                                    &inner.ts, &inner.theta, &inner.tool,
+                                )
+                            } else {
+                                inner.afterglow.luminosity(
+                                    t_s[i], nu_s[i], rtol_s[i],
+                                    max_iter as usize, force_return,
+                                    &inner.eats, &inner.ys, &inner.ts,
+                                    &inner.theta, &inner.tool,
+                                )
+                            }
+                        })
+                        .collect()
+                })
+            };
 
             // Fill isolated zero-valued points via log-log interpolation
             interpolate_zero_luminosities(&mut results, &t_s, &nu_s);
@@ -635,7 +692,19 @@ impl PyJet {
             let t_val: f64 = tobs.extract(py)?;
             let nu_val: f64 = nu.extract(py)?;
             let rtol_val: f64 = rtol.extract(py)?;
-            let result = if has_rs {
+
+            let result = if use_forward {
+                let z = inner.afterglow.z;
+                let nu_z = nu_val * (1.0 + z);
+                let grid = ForwardGrid::precompute(
+                    nu_z, inner.afterglow.theta_v,
+                    &inner.ys, &inner.ts, &inner.theta,
+                    &inner.eats, &inner.tool,
+                    &inner.afterglow.param,
+                    inner.afterglow.radiation_model.unwrap(),
+                );
+                grid.luminosity(t_val / (1.0 + z))
+            } else if has_rs {
                 inner.afterglow.luminosity_total(
                     t_val, nu_val, rtol_val,
                     max_iter as usize, force_return,

@@ -2,7 +2,7 @@ from ._jetsimpy import Jet
 from ._grid import *
 from ._jet_type import *
 
-def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None, flux_method=None):
     # Extract RS parameters if provided
     rs_kwargs = {}
     if include_rs:
@@ -36,12 +36,13 @@ def FluxDensity_tophat(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1,
         model=model,      # emissivity model
         rtol=rtol,         # integration tolerance
         max_iter=max_iter,
-        force_return=force_return
+        force_return=force_return,
+        flux_method=flux_method
     )
 
     return flux
 
-def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None, flux_method=None):
     # Extract RS parameters if provided
     rs_kwargs = {}
     if include_rs:
@@ -75,12 +76,13 @@ def FluxDensity_gaussian(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=
         model=model,      # emissivity model
         rtol=rtol,         # integration tolerance
         max_iter=max_iter,
-        force_return=force_return
+        force_return=force_return,
+        flux_method=flux_method
     )
 
     return flux
 
-def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None):
+def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=1, cfl=0.9, model="sync", rtol=1e-3, max_iter=100, force_return=True, include_rs=False, rs_params=None, flux_method=None):
     # Extract RS parameters if provided
     rs_kwargs = {}
     if include_rs:
@@ -114,7 +116,8 @@ def FluxDensity_powerlaw(t, nu, P, tmin=10.0, tmax=1e10, spread=True, cal_level=
         model=model,      # emissivity model
         rtol=rtol,         # integration tolerance
         max_iter=max_iter,
-        force_return=force_return
+        force_return=force_return,
+        flux_method=flux_method
     )
 
     return flux

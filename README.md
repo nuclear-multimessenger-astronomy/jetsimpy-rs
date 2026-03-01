@@ -26,6 +26,7 @@ The following features have been added beyond the original jetsimpy:
 - **ODE lateral spreading** (`spread_mode="ode"`): VegasAfterglow-style per-cell adaptive RK45 spreading, scaling linearly with cell count instead of O(n_θ²) for PDE
 - **Synchrotron self-absorption** (`sync_ssa`): SSA radiation model using min(I_thin, I_blackbody) Rayleigh-Jeans approach
 - **Synchrotron self-Compton** (`sync_ssc`): Inverse Compton scattering with Klein-Nishina cross-section corrections
+- **Thermal electron synchrotron** (`sync_thermal`): Margalit & Quataert (2021) thermal + non-thermal electron model with self-consistent self-absorption, relevant for NS merger afterglows, FBOTs, and trans-relativistic transients. Optional `full_volume` mode (Ferguson & Margalit 2025) replaces thin-shell approximation with volume-integrated post-shock emission for improved accuracy at trans-relativistic velocities
 - **Reverse shock**: Forward + reverse shock dynamics and emission, with separate `FluxDensity_forward()` and `FluxDensity_reverse()` diagnostics
 - **Zero-value interpolation**: Log-log interpolation of spurious zero-luminosity points at extreme parameters (original jetsimpy aborts in these cases)
 - **Adaptive integration refinement**: Forces refinement of all-zero EATS quadrature intervals to prevent missed narrow emission beams
@@ -293,10 +294,79 @@ Forward-mapping eliminates flux computation as a bottleneck (~0.1ms vs ~1.5–5m
 
 **ODE vs PDE crossover**: ODE spreading becomes faster than PDE at ~33–65 cells, with physics accuracy within ~0.1 dex of PDE for tophat jets and ~0.13 dex for structured (Gaussian) jets.
 
+## Thermal Electron Synchrotron Model (`sync_thermal`)
+
+The `sync_thermal` radiation model implements the thermal + non-thermal synchrotron formalism from Margalit & Quataert (2021, MQ21). This adds:
+
+- **Thermal electron emission** peaked near the thermal synchrotron frequency ν_Θ
+- **Modified power-law electrons** with temperature-dependent γ_m = 1 + a(Θ)·Θ
+- **Self-consistent self-absorption** for both thermal and non-thermal components
+
+### Usage
+
+```python
+P = {
+    'eps_e': 0.1,      # non-thermal electron energy fraction
+    'eps_b': 0.01,      # magnetic energy fraction
+    'p': 2.5,           # electron power-law index
+    'eps_T': 1.0,       # electron thermalization efficiency (default: 1.0)
+    'delta': 0.1,       # power-law energy fraction (default: eps_e/eps_T)
+    'theta_v': 0.0,
+    'z': 0.01,
+    'd': 100.0,
+}
+
+flux = jet.FluxDensity(t, nu, P, model='sync_thermal')
+```
+
+### When to use
+
+- **NS merger afterglows** (GW170817-like): thermal electrons dominate at early times
+- **FBOTs and trans-relativistic transients**: shock velocity β ~ 0.1–0.5c where thermal emission is significant
+- **Late-time GRB afterglows**: as the shock decelerates into the mildly relativistic regime
+
+### Full-Volume Post-Shock Extension (`full_volume`)
+
+By default, `sync_thermal` uses a thin-shell approximation: all emission originates from a geometrically thin layer at the shock front. Ferguson & Margalit (2025, FM25) showed this underpredicts optically thin flux by up to ~1 dex for trans-relativistic shocks (βΓ ~ 0.1–10), because emission actually comes from the entire post-shock volume.
+
+Setting `full_volume` to 1.0 activates the FM25 uniform post-shock convention, which replaces the thin-shell `dr` and shock-front fluid quantities with volume-integrated values:
+
+- **Post-shock fluid Lorentz factor** Γ_fluid from Rankine-Hugoniot jump conditions (FM25 Eq. B7), distinct from Γ_shock
+- **Volume-integrated shell thickness** dr = R · (1 − ξ_shell), where ξ_shell is the self-similar coordinate bounding the emitting region (FM25 Appendix C)
+- **Downstream density** n_e = 4 · n_ext · μ_e · Γ_fluid and **energy density** from FM25 Eqs. 14, 16
+- **Magnetic field** B = √(8π · ε_B · u) using the downstream energy density
+
+All MQ21 emissivity and absorption functions are reused unchanged — only the input fluid quantities differ.
+
+```python
+P = {
+    'eps_e': 0.1,
+    'eps_b': 0.01,
+    'p': 2.5,
+    'eps_T': 1.0,
+    'full_volume': 1.0,  # activate FM25 full-volume mode
+    'k': 0.0,            # CSM density power-law index (0 = ISM, 2 = wind)
+}
+flux = jet.FluxDensity(t, nu, P, model='sync_thermal')
+```
+
+The `k` parameter sets the circumstellar medium density profile (ρ ∝ r^{−k}): `k=0` for a constant-density ISM, `k=2` for a stellar wind. It defaults to 0.0 if omitted.
+
+**Behavior by regime:**
+- **Ultra-relativistic** (Γ >> 10): ξ_shell → 1 (thin shell), so full-volume converges to the thin-shell result
+- **Trans-relativistic** (βΓ ~ 0.1–10): full-volume gives significantly higher flux due to the larger effective emitting volume
+- **Off-axis**: works with both EATS and forward-mapping flux methods
+
+### Caveats
+
+For optically thick emission at all velocities, both thin-shell and full-volume modes produce consistent results (SSA saturates to the source function regardless of path length).
+
 ## References
 
 - Wang, H., Bhattacharya, M., Gill, R., & Giannios, D. (2024). "jetsimpy: A Highly Efficient Hydrodynamic Code for Gamma-Ray Burst Afterglow." *The Astrophysical Journal Supplement Series*, 273(1), 17. [arXiv:2402.19359](https://arxiv.org/abs/2402.19359)
 - Wang, Y., Zhang, B., & Huang, B. (2025). "VegasAfterglow: A Broad-Spectrum Gamma-Ray Burst Afterglow Modeling Package." *The Astrophysical Journal*. [arXiv:2507.10829](https://arxiv.org/abs/2507.10829) | [GitHub](https://github.com/YihanWangAstro/VegasAfterglow)
+- Margalit, B. & Quataert, E. (2021). "Thermal Electrons in Mildly-relativistic Synchrotron Blast-waves." *The Astrophysical Journal*. [arXiv:2111.00012](https://arxiv.org/abs/2111.00012) | [GitHub](https://github.com/bmargalit/thermal-synchrotron)
+- Ferguson, R. & Margalit, B. (2025). "Numerical Modeling of Relativistic Effects in Synchrotron-Emitting Shocks." [arXiv:2509.16313](https://arxiv.org/abs/2509.16313) | [GitHub](https://github.com/RossFerguson1/synchrotron_shock_model)
 - Sari, R., Piran, T., & Narayan, R. (1998). "Spectra and Light Curves of Gamma-Ray Burst Afterglows." *The Astrophysical Journal Letters*, 497(1), L17.
 - Wijers, R. A. M. J., & Galama, T. J. (1999). "Physical Parameters of GRB 970508 and GRB 971214 from Their Afterglow Synchrotron Emission." *The Astrophysical Journal*, 523(1), 177.
 - Original implementation: [haowang-astro/jetsimpy](https://github.com/haowang-astro/jetsimpy)

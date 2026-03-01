@@ -129,7 +129,7 @@ class Jet:
         return I
     
     # flux density [mJy]
-    def FluxDensity(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+    def FluxDensity(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True, flux_method=None):
         # config parameters
         self._jet.configParameters(P)
 
@@ -139,11 +139,14 @@ class Jet:
         else:
             self._jet.configIntensityPy(model)
 
+        # config flux method (reset each call to avoid stale state)
+        self._jet.configFluxMethod(flux_method if flux_method is not None else "")
+
         try:
             L = self._jet.calculateLuminosity(t, nu, rtol, max_iter, force_return)
         except Exception as e:
             raise e
-        
+
         return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
     
     # flux density from forward shock only [mJy]
