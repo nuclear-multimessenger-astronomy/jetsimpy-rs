@@ -229,7 +229,7 @@ Benchmarks for a tophat jet, on-axis (θ_v=0), X-ray (1 GHz), 100 time points. M
 ## References
 
 - Wang, H., Bhattacharya, M., Gill, R., & Giannios, D. (2024). "jetsimpy: A Highly Efficient Hydrodynamic Code for Gamma-Ray Burst Afterglow." *The Astrophysical Journal Supplement Series*, 273(1), 17. [arXiv:2402.19359](https://arxiv.org/abs/2402.19359)
-- Wang, Y., Zhang, B., & Huang, B. (2025). "VegasAfterglow: A Broad-Spectrum Gamma-Ray Burst Afterglow Modeling Package." *The Astrophysical Journal*. [arXiv:2501.15089](https://arxiv.org/abs/2501.15089)
+- Wang, Y., Zhang, B., & Huang, B. (2025). "VegasAfterglow: A Broad-Spectrum Gamma-Ray Burst Afterglow Modeling Package." *The Astrophysical Journal*. [arXiv:2507.10829](https://arxiv.org/abs/2507.10829) | [GitHub](https://github.com/YihanWangAstro/VegasAfterglow)
 - Sari, R., Piran, T., & Narayan, R. (1998). "Spectra and Light Curves of Gamma-Ray Burst Afterglows." *The Astrophysical Journal Letters*, 497(1), L17.
 - Wijers, R. A. M. J., & Galama, T. J. (1999). "Physical Parameters of GRB 970508 and GRB 971214 from Their Afterglow Synchrotron Emission." *The Astrophysical Journal*, 523(1), 177.
 - Original implementation: [haowang-astro/jetsimpy](https://github.com/haowang-astro/jetsimpy)
