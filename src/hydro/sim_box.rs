@@ -700,10 +700,15 @@ impl SimBox {
         self.save_primitives();
     }
 
-    /// Maximum number of output time points saved from the PDE solver.
-    /// The CFL-limited spread solver may take ~30,000+ internal steps, but
-    /// we only need ~1000 log-spaced output points for accurate interpolation.
-    const MAX_OUTPUT_POINTS: usize = 1000;
+    /// Maximum output time points for the CFL-limited PDE solver.
+    /// Since PDE step count is determined by CFL (not output schedule),
+    /// more output points don't slow it down but do improve EATS interpolation.
+    const PDE_OUTPUT_POINTS: usize = 1000;
+
+    /// Maximum output time points for adaptive (ODE/no-spread) solvers.
+    /// These solvers' step size is constrained by the output schedule, so
+    /// fewer points = fewer forced steps = faster. VegasAfterglow uses ~94.
+    const ADAPTIVE_OUTPUT_POINTS: usize = 150;
 
     fn solve_spread(&mut self) {
         self.init_solution();
@@ -711,7 +716,7 @@ impl SimBox {
         // Pre-compute log-spaced output schedule to avoid saving every CFL step
         let log_tmin = self.tmin.ln();
         let log_tmax = self.tmax.ln();
-        let d_log_t = (log_tmax - log_tmin) / Self::MAX_OUTPUT_POINTS as f64;
+        let d_log_t = (log_tmax - log_tmin) / Self::PDE_OUTPUT_POINTS as f64;
         let mut next_save_log_t = log_tmin + d_log_t;
 
         let mut t = self.tmin;
@@ -932,7 +937,7 @@ impl SimBox {
         // Pre-compute log-spaced output times
         let log_tmin = self.tmin.ln();
         let log_tmax = self.tmax.ln();
-        let n_output = Self::MAX_OUTPUT_POINTS;
+        let n_output = Self::ADAPTIVE_OUTPUT_POINTS;
         let mut output_times = Vec::with_capacity(n_output + 1);
         output_times.push(self.tmin);
         for k in 1..=n_output {
@@ -1051,6 +1056,12 @@ impl SimBox {
 
         self.init_solution();
 
+        // Sparse output: only save at log-spaced intervals
+        let log_tmin = self.tmin.ln();
+        let log_tmax = self.tmax.ln();
+        let d_log_t = (log_tmax - log_tmin) / Self::ADAPTIVE_OUTPUT_POINTS as f64;
+        let mut next_save_log_t = log_tmin + d_log_t;
+
         let mut delta_t = 1.0;
         let mut t = self.tmin;
         while t < self.tmax {
@@ -1061,8 +1072,13 @@ impl SimBox {
                 t += delta_t;
                 delta_t = dt;
 
-                self.ts.push(t);
-                self.save_primitives();
+                if t.ln() >= next_save_log_t || t >= self.tmax {
+                    self.ts.push(t);
+                    self.save_primitives();
+                    while next_save_log_t <= t.ln() {
+                        next_save_log_t += d_log_t;
+                    }
+                }
             } else {
                 delta_t = dt;
             }
