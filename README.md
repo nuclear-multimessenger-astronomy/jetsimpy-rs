@@ -29,6 +29,8 @@ The following features have been added beyond the original jetsimpy:
 - **Reverse shock**: Forward + reverse shock dynamics and emission, with separate `FluxDensity_forward()` and `FluxDensity_reverse()` diagnostics
 - **Zero-value interpolation**: Log-log interpolation of spurious zero-luminosity points at extreme parameters (original jetsimpy aborts in these cases)
 - **Adaptive integration refinement**: Forces refinement of all-zero EATS quadrature intervals to prevent missed narrow emission beams
+- **EATS quadrature optimizations**: On-axis peak-finding skip (peak is always at θ=0 by symmetry), off-axis peak subsampling (20 points instead of all cells), and pre-allocated integration buffers
+- **Primitive-variable no-spread solver**: No-spread mode now uses per-cell primitive-variable RK45 (shared with ODE mode), eliminating conservative-to-primitive root-finding and heap allocations per time step
 
 ## Project Structure
 
@@ -207,18 +209,18 @@ The factor π/4 ≈ 0.785 comes from averaging over the pitch angle distribution
 
 ### Performance Comparison
 
-Benchmarks for a tophat jet, on-axis (θ_v=0), X-ray (1 GHz), 100 time points. Measured on a single core (Intel Xeon, HPC node).
+Benchmarks for a tophat jet, on-axis (θ_v=0), X-ray (1 GHz), 100 time points. Total time includes both the hydrodynamic solve and flux computation. Measured on a single core (Intel Xeon, HPC node).
 
 | Cells | PDE | ODE | No-spread | VegasAfterglow |
 |-------|-----|-----|-----------|----------------|
-| 17 | 0.006s | 0.006s | 0.007s | 0.0015s |
-| 33 | 0.009s | 0.010s | 0.007s | — |
-| 129 | 0.103s | 0.026s | 0.021s | — |
-| 257 | 0.406s | 0.051s | 0.037s | — |
+| 17 | 0.005s | 0.006s | 0.004s | 0.0015s |
+| 33 | 0.008s | 0.009s | 0.007s | — |
+| 129 | 0.099s | 0.029s | 0.018s | — |
+| 257 | 0.396s | 0.056s | 0.035s | — |
 
 **Scaling**: PDE mode scales as O(n_θ²) due to CFL-limited time stepping; ODE and no-spread modes scale approximately linearly with cell count.
 
-**Architecture difference**: VegasAfterglow uses a forward-mapping approach — it pre-computes radiation on a 3D grid (phi × theta × time), then evaluates flux via interpolation and summation. jetsimpy-rs uses inverse-mapping EATS adaptive quadrature, evaluating the radiation model at each quadrature point. This architectural difference accounts for most of the ~4× speed gap at equivalent cell counts (17 cells).
+**Architecture difference**: VegasAfterglow uses a forward-mapping approach — it pre-computes radiation on a 3D grid (phi × theta × time), then evaluates flux via interpolation and summation. jetsimpy-rs uses inverse-mapping EATS adaptive quadrature, evaluating the radiation model at each quadrature point. EATS optimizations (on-axis peak-finding skip, off-axis subsampling) have reduced the flux computation time from ~6ms to ~1.4ms for 17-cell on-axis, closing most of the gap with VegasAfterglow's ~1.5ms. The remaining ~3× total-time gap at 17 cells is dominated by the hydrodynamic solve overhead.
 
 **ODE vs PDE crossover**: ODE spreading becomes faster than PDE at ~33–65 cells, with physics accuracy within ~0.1 dex of PDE for tophat jets and ~0.13 dex for structured (Gaussian) jets.
 

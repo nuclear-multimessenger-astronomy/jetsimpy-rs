@@ -29,7 +29,7 @@ pub fn adaptive_1d<F: FnMut(f64) -> f64>(
     force_return: bool,
 ) -> Result<f64, String> {
     let xsize = xini.len();
-    let mut intervals: Vec<Interval> = Vec::new();
+    let mut intervals: Vec<Interval> = Vec::with_capacity(64);
     let mut integral_tot = 0.0;
 
     for i in 0..xsize - 1 {
@@ -62,7 +62,7 @@ pub fn adaptive_1d<F: FnMut(f64) -> f64>(
 
         // We need to iterate over existing intervals and possibly add new ones.
         // To avoid borrow issues, collect new intervals separately.
-        let mut new_intervals: Vec<Interval> = Vec::new();
+        let mut new_intervals: Vec<Interval> = Vec::with_capacity(64);
 
         for i in 0..intervals_size {
             let itv = &intervals[i];

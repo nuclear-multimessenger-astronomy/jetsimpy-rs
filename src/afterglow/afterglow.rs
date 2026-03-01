@@ -119,7 +119,14 @@ impl Afterglow {
             -self.dl_domega(nu_z, &blast)
         };
 
-        minimization(&mut f, theta_data, 1e-6, 100)
+        let peak_samples: Vec<f64> = if theta_data.len() <= 20 {
+            theta_data.to_vec()
+        } else {
+            let n = 20;
+            let step = (theta_data.len() - 1) as f64 / (n - 1) as f64;
+            (0..n).map(|i| theta_data[(i as f64 * step) as usize]).collect()
+        };
+        minimization(&mut f, &peak_samples, 1e-6, 100)
     }
 
     pub fn luminosity(
@@ -137,7 +144,12 @@ impl Afterglow {
     ) -> f64 {
         let tobs_z = tobs / (1.0 + self.z);
         let nu_z = nu * (1.0 + self.z);
-        let theta_peak = self.find_peak(tobs_z, nu_z, eats, y_data, t_data, theta_data, tool);
+        // On-axis: peak is always at theta=0 by axial symmetry; skip find_peak.
+        let theta_peak = if self.theta_v.abs() < 1e-6 {
+            theta_data[0]
+        } else {
+            self.find_peak(tobs_z, nu_z, eats, y_data, t_data, theta_data, tool)
+        };
 
         // Get beaming angle
         let mut blast_peak = Blast::default();
@@ -261,10 +273,14 @@ impl Afterglow {
         let tobs_z = tobs / (1.0 + self.z);
         let nu_z = nu * (1.0 + self.z);
 
-        // Find peak for RS (use same approach as FS)
-        let theta_peak = self.find_peak_reverse(
-            tobs_z, nu_z, eats, y_data, rs_data, t_data, theta_data, tool,
-        );
+        // On-axis: peak is always at theta=0 by axial symmetry; skip find_peak.
+        let theta_peak = if self.theta_v.abs() < 1e-6 {
+            theta_data[0]
+        } else {
+            self.find_peak_reverse(
+                tobs_z, nu_z, eats, y_data, rs_data, t_data, theta_data, tool,
+            )
+        };
 
         let mut blast_peak = Blast::default();
         if !eats.solve_blast_reverse(
@@ -396,7 +412,14 @@ impl Afterglow {
             }
             -self.dl_domega_rs(nu_z, &blast)
         };
-        minimization(&mut f, theta_data, 1e-6, 100)
+        let peak_samples: Vec<f64> = if theta_data.len() <= 20 {
+            theta_data.to_vec()
+        } else {
+            let n = 20;
+            let step = (theta_data.len() - 1) as f64 / (n - 1) as f64;
+            (0..n).map(|i| theta_data[(i as f64 * step) as usize]).collect()
+        };
+        minimization(&mut f, &peak_samples, 1e-6, 100)
     }
 
     pub fn freq_int_l(
@@ -434,7 +457,12 @@ impl Afterglow {
     ) -> f64 {
         let tobs_z = tobs / (1.0 + self.z);
         let nu_z = nu * (1.0 + self.z);
-        let theta_peak = self.find_peak(tobs_z, nu_z, eats, y_data, t_data, theta_data, tool);
+        // On-axis: peak is always at theta=0 by axial symmetry; skip find_peak.
+        let theta_peak = if self.theta_v.abs() < 1e-6 {
+            theta_data[0]
+        } else {
+            self.find_peak(tobs_z, nu_z, eats, y_data, t_data, theta_data, tool)
+        };
 
         // Get beaming angle & nu_src from peak blast
         let mut blast_peak = Blast::default();

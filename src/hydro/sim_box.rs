@@ -444,21 +444,6 @@ impl SimBox {
         }
     }
 
-    fn solve_dy_dt_no_spread(&mut self) {
-        for i in 0..self.ntheta {
-            let beta_f = 4.0 * self.beta[i] * (self.beta_gamma_sq[i] + 1.0)
-                / (4.0 * self.beta_gamma_sq[i] + 3.0);
-
-            self.dy_dt[4][i] = beta_f * C_SPEED;
-
-            let rho = self.tool.solve_density(self.r[i]) * MASS_P;
-            self.dy_dt[0][i] = self.dy_dt[4][i] * rho * self.r[i] * self.r[i];
-            self.dy_dt[1][i] = 0.0;
-            self.dy_dt[2][i] = self.dy_dt[4][i] * rho * self.r[i] * self.r[i];
-            self.dy_dt[3][i] = 0.0;
-        }
-    }
-
     fn one_step_rk2(&mut self, dt: f64) {
         // Save initial state into pre-allocated scratch (no heap allocation)
         for j in 0..self.ntheta {
@@ -498,185 +483,6 @@ impl SimBox {
         }
         self.solve_primitive();
         self.solve_eigen();
-    }
-
-    fn one_step_rk45(&mut self, dt: &mut f64, rtol: f64) -> bool {
-        let n = self.ntheta;
-        let conserved_ini: [Vec<f64>; 5] = [
-            self.eb.clone(),
-            self.ht.clone(),
-            self.msw.clone(),
-            self.mej.clone(),
-            self.r.clone(),
-        ];
-
-        let mut k1 = vec![vec![0.0; n]; 5];
-        let mut k2 = vec![vec![0.0; n]; 5];
-        let mut k3 = vec![vec![0.0; n]; 5];
-        let mut k4 = vec![vec![0.0; n]; 5];
-        let mut k5 = vec![vec![0.0; n]; 5];
-        let mut k6 = vec![vec![0.0; n]; 5];
-
-        let dt_val = *dt;
-
-        // Helper macro to set conserved from expression
-        macro_rules! set_conserved {
-            ($j:expr, $expr:expr) => {
-                let vals: [f64; 5] = $expr;
-                self.eb[$j] = vals[0];
-                self.ht[$j] = vals[1];
-                self.msw[$j] = vals[2];
-                self.mej[$j] = vals[3];
-                self.r[$j] = vals[4];
-            };
-        }
-
-        // Step 1
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k1[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] + k1[0][j] * 2.0 / 9.0,
-                conserved_ini[1][j] + k1[1][j] * 2.0 / 9.0,
-                conserved_ini[2][j] + k1[2][j] * 2.0 / 9.0,
-                conserved_ini[3][j] + k1[3][j] * 2.0 / 9.0,
-                conserved_ini[4][j] + k1[4][j] * 2.0 / 9.0
-            ]);
-        }
-        self.solve_primitive();
-
-        // Step 2
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k2[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] + k1[0][j] / 12.0 + k2[0][j] / 4.0,
-                conserved_ini[1][j] + k1[1][j] / 12.0 + k2[1][j] / 4.0,
-                conserved_ini[2][j] + k1[2][j] / 12.0 + k2[2][j] / 4.0,
-                conserved_ini[3][j] + k1[3][j] / 12.0 + k2[3][j] / 4.0,
-                conserved_ini[4][j] + k1[4][j] / 12.0 + k2[4][j] / 4.0
-            ]);
-        }
-        self.solve_primitive();
-
-        // Step 3
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k3[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] + k1[0][j] * 69.0 / 128.0 - k2[0][j] * 243.0 / 128.0 + k3[0][j] * 135.0 / 64.0,
-                conserved_ini[1][j] + k1[1][j] * 69.0 / 128.0 - k2[1][j] * 243.0 / 128.0 + k3[1][j] * 135.0 / 64.0,
-                conserved_ini[2][j] + k1[2][j] * 69.0 / 128.0 - k2[2][j] * 243.0 / 128.0 + k3[2][j] * 135.0 / 64.0,
-                conserved_ini[3][j] + k1[3][j] * 69.0 / 128.0 - k2[3][j] * 243.0 / 128.0 + k3[3][j] * 135.0 / 64.0,
-                conserved_ini[4][j] + k1[4][j] * 69.0 / 128.0 - k2[4][j] * 243.0 / 128.0 + k3[4][j] * 135.0 / 64.0
-            ]);
-        }
-        self.solve_primitive();
-
-        // Step 4
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k4[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] - k1[0][j] * 17.0 / 12.0 + k2[0][j] * 27.0 / 4.0 - k3[0][j] * 27.0 / 5.0 + k4[0][j] * 16.0 / 15.0,
-                conserved_ini[1][j] - k1[1][j] * 17.0 / 12.0 + k2[1][j] * 27.0 / 4.0 - k3[1][j] * 27.0 / 5.0 + k4[1][j] * 16.0 / 15.0,
-                conserved_ini[2][j] - k1[2][j] * 17.0 / 12.0 + k2[2][j] * 27.0 / 4.0 - k3[2][j] * 27.0 / 5.0 + k4[2][j] * 16.0 / 15.0,
-                conserved_ini[3][j] - k1[3][j] * 17.0 / 12.0 + k2[3][j] * 27.0 / 4.0 - k3[3][j] * 27.0 / 5.0 + k4[3][j] * 16.0 / 15.0,
-                conserved_ini[4][j] - k1[4][j] * 17.0 / 12.0 + k2[4][j] * 27.0 / 4.0 - k3[4][j] * 27.0 / 5.0 + k4[4][j] * 16.0 / 15.0
-            ]);
-        }
-        self.solve_primitive();
-
-        // Step 5
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k5[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] + k1[0][j] * 65.0 / 432.0 - k2[0][j] * 5.0 / 16.0 + k3[0][j] * 13.0 / 16.0 + k4[0][j] * 4.0 / 27.0 + k5[0][j] * 5.0 / 144.0,
-                conserved_ini[1][j] + k1[1][j] * 65.0 / 432.0 - k2[1][j] * 5.0 / 16.0 + k3[1][j] * 13.0 / 16.0 + k4[1][j] * 4.0 / 27.0 + k5[1][j] * 5.0 / 144.0,
-                conserved_ini[2][j] + k1[2][j] * 65.0 / 432.0 - k2[2][j] * 5.0 / 16.0 + k3[2][j] * 13.0 / 16.0 + k4[2][j] * 4.0 / 27.0 + k5[2][j] * 5.0 / 144.0,
-                conserved_ini[3][j] + k1[3][j] * 65.0 / 432.0 - k2[3][j] * 5.0 / 16.0 + k3[3][j] * 13.0 / 16.0 + k4[3][j] * 4.0 / 27.0 + k5[3][j] * 5.0 / 144.0,
-                conserved_ini[4][j] + k1[4][j] * 65.0 / 432.0 - k2[4][j] * 5.0 / 16.0 + k3[4][j] * 13.0 / 16.0 + k4[4][j] * 4.0 / 27.0 + k5[4][j] * 5.0 / 144.0
-            ]);
-        }
-        self.solve_primitive();
-
-        // Step 6
-        self.solve_dy_dt_no_spread();
-        for i in 0..5 {
-            for j in 0..n {
-                k6[i][j] = dt_val * self.dy_dt[i][j];
-            }
-        }
-        for j in 0..n {
-            set_conserved!(j, [
-                conserved_ini[0][j] + k1[0][j] * 47.0 / 450.0 + k3[0][j] * 12.0 / 25.0 + k4[0][j] * 32.0 / 225.0 + k5[0][j] / 30.0 + k6[0][j] * 6.0 / 25.0,
-                conserved_ini[1][j] + k1[1][j] * 47.0 / 450.0 + k3[1][j] * 12.0 / 25.0 + k4[1][j] * 32.0 / 225.0 + k5[1][j] / 30.0 + k6[1][j] * 6.0 / 25.0,
-                conserved_ini[2][j] + k1[2][j] * 47.0 / 450.0 + k3[2][j] * 12.0 / 25.0 + k4[2][j] * 32.0 / 225.0 + k5[2][j] / 30.0 + k6[2][j] * 6.0 / 25.0,
-                conserved_ini[3][j] + k1[3][j] * 47.0 / 450.0 + k3[3][j] * 12.0 / 25.0 + k4[3][j] * 32.0 / 225.0 + k5[3][j] / 30.0 + k6[3][j] * 6.0 / 25.0,
-                conserved_ini[4][j] + k1[4][j] * 47.0 / 450.0 + k3[4][j] * 12.0 / 25.0 + k4[4][j] * 32.0 / 225.0 + k5[4][j] / 30.0 + k6[4][j] * 6.0 / 25.0
-            ]);
-        }
-
-        // Error estimate
-        let mut rerror = 0.0f64;
-        for i in 0..5 {
-            let conserved = match i {
-                0 => &self.eb,
-                1 => &self.ht,
-                2 => &self.msw,
-                3 => &self.mej,
-                4 => &self.r,
-                _ => unreachable!(),
-            };
-            for j in 0..n {
-                let error = (k1[i][j] / 150.0 - k3[i][j] * 3.0 / 100.0
-                    + k4[i][j] * 16.0 / 75.0
-                    + k5[i][j] / 20.0
-                    - k6[i][j] * 6.0 / 25.0)
-                    .abs();
-                rerror = rerror.max(error / conserved[j].abs());
-            }
-        }
-
-        let succeeded = rerror < rtol;
-        if !succeeded {
-            // Roll back
-            for j in 0..n {
-                self.eb[j] = conserved_ini[0][j];
-                self.ht[j] = conserved_ini[1][j];
-                self.msw[j] = conserved_ini[2][j];
-                self.mej[j] = conserved_ini[3][j];
-                self.r[j] = conserved_ini[4][j];
-            }
-        }
-        self.solve_primitive();
-
-        // Update dt
-        let boost_factor = (0.9 * (rtol / rerror).powf(0.2)).min(1.5);
-        *dt *= boost_factor;
-
-        succeeded
     }
 
     fn save_primitives(&mut self) {
@@ -766,6 +572,7 @@ impl SimBox {
         state: &[f64; Self::ODE_NVAR],
         theta0_i: f64,
         theta_c: f64,
+        spread: bool,
     ) -> [f64; Self::ODE_NVAR] {
         let msw = state[0];
         let mej = state[1];
@@ -783,23 +590,31 @@ impl SimBox {
         let dr_dt = beta_f * C_SPEED;
 
         // Solid angle correction for mass sweeping
-        let cos_theta0 = theta0_i.cos();
-        let f_spread = if (1.0 - cos_theta0).abs() > 1e-30 {
-            (1.0 - theta_cell.cos()) / (1.0 - cos_theta0)
+        let f_spread_val = if spread {
+            let cos_theta0 = theta0_i.cos();
+            if (1.0 - cos_theta0).abs() > 1e-30 {
+                (1.0 - theta_cell.cos()) / (1.0 - cos_theta0)
+            } else {
+                1.0
+            }
         } else {
             1.0
         };
 
         let rho = self.tool.solve_density(r) * MASS_P;
-        let source = dr_dt * rho * r * r * f_spread;
+        let source = dr_dt * rho * r * r * f_spread_val;
         let dmsw_dt = source;
         let dmej_dt = 0.0;
 
         // Spreading: dθ/dt = F(u) · β_f · c / (2Γr)
-        let u = bg_sq.sqrt();
-        let theta_s = theta_cell.max(theta_c);
-        let f_suppress = 1.0 / (1.0 + 7.0 * u * theta_s);
-        let dtheta_dt = f_suppress * beta_f * C_SPEED / (2.0 * gamma * r);
+        let dtheta_dt = if spread {
+            let u = bg_sq.sqrt();
+            let theta_s = theta_cell.max(theta_c);
+            let f_suppress = 1.0 / (1.0 + 7.0 * u * theta_s);
+            f_suppress * beta_f * C_SPEED / (2.0 * gamma * r)
+        } else {
+            0.0
+        };
 
         // d(beta_gamma_sq)/dt from energy conservation:
         // Eb = s * gamma² * (1 + beta⁴/3) * msw + (1-s)*gamma*msw + gamma*mej
@@ -851,18 +666,19 @@ impl SimBox {
         theta0_i: f64,
         theta_c: f64,
         rtol: f64,
+        spread: bool,
     ) -> ([f64; Self::ODE_NVAR], f64, bool) {
         const N: usize = SimBox::ODE_NVAR;
 
-        let k1 = self.ode_rhs_spread_cell(state, theta0_i, theta_c);
+        let k1 = self.ode_rhs_spread_cell(state, theta0_i, theta_c, spread);
 
         let mut s2 = [0.0; N];
         for j in 0..N { s2[j] = state[j] + k1[j] * dt * 2.0 / 9.0; }
-        let k2 = self.ode_rhs_spread_cell(&s2, theta0_i, theta_c);
+        let k2 = self.ode_rhs_spread_cell(&s2, theta0_i, theta_c, spread);
 
         let mut s3 = [0.0; N];
         for j in 0..N { s3[j] = state[j] + k1[j] * dt / 12.0 + k2[j] * dt / 4.0; }
-        let k3 = self.ode_rhs_spread_cell(&s3, theta0_i, theta_c);
+        let k3 = self.ode_rhs_spread_cell(&s3, theta0_i, theta_c, spread);
 
         let mut s4 = [0.0; N];
         for j in 0..N {
@@ -870,7 +686,7 @@ impl SimBox {
                 - k2[j] * dt * 243.0 / 128.0
                 + k3[j] * dt * 135.0 / 64.0;
         }
-        let k4 = self.ode_rhs_spread_cell(&s4, theta0_i, theta_c);
+        let k4 = self.ode_rhs_spread_cell(&s4, theta0_i, theta_c, spread);
 
         let mut s5 = [0.0; N];
         for j in 0..N {
@@ -879,7 +695,7 @@ impl SimBox {
                 - k3[j] * dt * 27.0 / 5.0
                 + k4[j] * dt * 16.0 / 15.0;
         }
-        let k5 = self.ode_rhs_spread_cell(&s5, theta0_i, theta_c);
+        let k5 = self.ode_rhs_spread_cell(&s5, theta0_i, theta_c, spread);
 
         let mut s6 = [0.0; N];
         for j in 0..N {
@@ -889,7 +705,7 @@ impl SimBox {
                 + k4[j] * dt * 4.0 / 27.0
                 + k5[j] * dt * 5.0 / 144.0;
         }
-        let k6 = self.ode_rhs_spread_cell(&s6, theta0_i, theta_c);
+        let k6 = self.ode_rhs_spread_cell(&s6, theta0_i, theta_c, spread);
 
         // 5th-order solution
         let mut result = [0.0; N];
@@ -967,7 +783,7 @@ impl SimBox {
             ];
 
             // Save initial primitives
-            let bt = self.compute_beta_th_from_state(&state, theta0_i);
+            let bt = self.compute_beta_th_from_state(&state, theta0_i, true);
             ys[0][i][0] = state[0]; // msw
             ys[1][i][0] = state[1]; // mej
             ys[2][i][0] = state[4]; // beta_gamma_sq
@@ -983,7 +799,7 @@ impl SimBox {
                 dt = dt.min(dt_max);
 
                 let (new_state, new_dt, succeeded) =
-                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol);
+                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol, true);
 
                 if succeeded {
                     t += dt;
@@ -992,7 +808,7 @@ impl SimBox {
                     state[4] = state[4].max(0.0);         // clamp bg_sq
 
                     while save_idx < nt && output_times[save_idx] <= t + 1e-10 {
-                        let bt = self.compute_beta_th_from_state(&state, theta0_i);
+                        let bt = self.compute_beta_th_from_state(&state, theta0_i, true);
                         ys[0][i][save_idx] = state[0]; // msw
                         ys[1][i][save_idx] = state[1]; // mej
                         ys[2][i][save_idx] = state[4]; // beta_gamma_sq
@@ -1008,7 +824,7 @@ impl SimBox {
             }
 
             while save_idx < nt {
-                let bt = self.compute_beta_th_from_state(&state, theta0_i);
+                let bt = self.compute_beta_th_from_state(&state, theta0_i, true);
                 ys[0][i][save_idx] = state[0];
                 ys[1][i][save_idx] = state[1];
                 ys[2][i][save_idx] = state[4];
@@ -1030,7 +846,10 @@ impl SimBox {
     }
 
     /// Compute beta_th from ODE state for saving.
-    fn compute_beta_th_from_state(&self, state: &[f64; Self::ODE_NVAR], _theta0_i: f64) -> f64 {
+    fn compute_beta_th_from_state(&self, state: &[f64; Self::ODE_NVAR], _theta0_i: f64, spread: bool) -> f64 {
+        if !spread {
+            return 0.0;
+        }
         let r = state[2];
         let theta_cell = state[3];
         let bg_sq = state[4].max(0.0);
@@ -1045,52 +864,101 @@ impl SimBox {
         r * dtheta_dt / C_SPEED
     }
 
+    /// Solve without lateral spreading using per-cell primitive-variable RK45.
+    /// Reuses the ODE spread stepper with spread=false, eliminating all
+    /// conservative-to-primitive root-finding and heap allocations.
     fn solve_no_spread(&mut self) {
-        // For tophat jets (uniform ICs), all cells evolve identically in no-spread mode.
-        // Solve just 1 cell and replicate — up to ntheta× speedup.
         let real_ntheta = self.ntheta;
         let is_tophat = real_ntheta > 1 && self.is_uniform_ics();
-        if is_tophat {
-            self.ntheta = 1;
-        }
+        let solve_ntheta = if is_tophat { 1 } else { real_ntheta };
 
-        self.init_solution();
-
-        // Sparse output: only save at log-spaced intervals
+        // Pre-compute log-spaced output times
         let log_tmin = self.tmin.ln();
         let log_tmax = self.tmax.ln();
-        let d_log_t = (log_tmax - log_tmin) / Self::ADAPTIVE_OUTPUT_POINTS as f64;
-        let mut next_save_log_t = log_tmin + d_log_t;
+        let n_output = Self::ADAPTIVE_OUTPUT_POINTS;
+        let mut output_times = Vec::with_capacity(n_output + 1);
+        output_times.push(self.tmin);
+        for k in 1..=n_output {
+            let log_t = log_tmin + (log_tmax - log_tmin) * k as f64 / n_output as f64;
+            output_times.push(log_t.exp());
+        }
+        let nt = output_times.len();
 
-        let mut delta_t = 1.0;
-        let mut t = self.tmin;
-        while t < self.tmax {
-            let mut dt = delta_t;
-            let succeeded = self.one_step_rk45(&mut dt, 1e-6);
+        // Initialize output: ys[5][ntheta][nt]
+        let mut ys = vec![vec![vec![0.0; nt]; real_ntheta]; 5];
+        let ts = output_times.clone();
 
-            if succeeded {
-                t += delta_t;
-                delta_t = dt;
+        let theta_c = self.theta_c;
+        let rtol = 1e-6;
 
-                if t.ln() >= next_save_log_t || t >= self.tmax {
-                    self.ts.push(t);
-                    self.save_primitives();
-                    while next_save_log_t <= t.ln() {
-                        next_save_log_t += d_log_t;
+        for i in 0..solve_ntheta {
+            let theta0_i = self.theta[i];
+
+            // Initial state: [msw, mej, r, theta_cell, beta_gamma_sq]
+            let mut state = [
+                self.msw[i],
+                self.mej[i],
+                self.r[i],
+                theta0_i,
+                self.beta_gamma_sq[i],
+            ];
+
+            // Save initial primitives (beta_th = 0 for no-spread)
+            ys[0][i][0] = state[0]; // msw
+            ys[1][i][0] = state[1]; // mej
+            ys[2][i][0] = state[4]; // beta_gamma_sq
+            ys[3][i][0] = 0.0;      // beta_th
+            ys[4][i][0] = state[2]; // r
+
+            let mut t = self.tmin;
+            let mut dt = (self.tmax - self.tmin) * 1e-4;
+            let mut save_idx = 1;
+
+            while t < self.tmax && save_idx < nt {
+                let dt_max = (output_times[save_idx] - t).min(self.tmax - t + 1e-6);
+                dt = dt.min(dt_max);
+
+                let (new_state, new_dt, succeeded) =
+                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol, false);
+
+                if succeeded {
+                    t += dt;
+                    state = new_state;
+                    state[4] = state[4].max(0.0); // clamp bg_sq
+
+                    while save_idx < nt && output_times[save_idx] <= t + 1e-10 {
+                        ys[0][i][save_idx] = state[0]; // msw
+                        ys[1][i][save_idx] = state[1]; // mej
+                        ys[2][i][save_idx] = state[4]; // beta_gamma_sq
+                        ys[3][i][save_idx] = 0.0;      // beta_th
+                        ys[4][i][save_idx] = state[2]; // r
+                        save_idx += 1;
                     }
+
+                    dt = new_dt;
+                } else {
+                    dt = new_dt;
                 }
-            } else {
-                delta_t = dt;
+            }
+
+            while save_idx < nt {
+                ys[0][i][save_idx] = state[0];
+                ys[1][i][save_idx] = state[1];
+                ys[2][i][save_idx] = state[4];
+                ys[3][i][save_idx] = 0.0;
+                ys[4][i][save_idx] = state[2];
+                save_idx += 1;
             }
         }
 
-        // Replicate single-cell solution to all theta cells
         if is_tophat {
-            self.ntheta = real_ntheta;
             for var in 0..5 {
-                let template = self.ys[var][0].clone();
-                self.ys[var] = vec![template; real_ntheta];
+                let template = ys[var][0].clone();
+                ys[var] = vec![template; real_ntheta];
             }
         }
+
+        self.ys = ys;
+        self.ts = ts;
     }
 }
