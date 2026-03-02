@@ -128,6 +128,8 @@ plt.tight_layout()
 plt.savefig('at2018cow_radio.png', dpi=150)
 ```
 
+![AT2018cow radio light curves](img/at2018cow_radio.png)
+
 ## Discussion
 
 The simple spherical blast wave model captures the qualitative behavior:
@@ -164,4 +166,8 @@ The wind model produces a different light curve morphology --- a broader peak at
 
 ## Full script
 
-The complete analysis script is at [`tests/at2018cow_radio.py`](https://github.com/nuclear-multimessenger-astronomy/blastwave/blob/main/tests/at2018cow_radio.py).
+The complete analysis script is at [`examples/at2018cow_radio.py`](https://github.com/nuclear-multimessenger-astronomy/blastwave/blob/main/examples/at2018cow_radio.py). To regenerate the plot:
+
+```bash
+python examples/at2018cow_radio.py
+```

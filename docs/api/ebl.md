@@ -13,7 +13,7 @@ blastwave implements the Franceschini & Rodighiero (2018) optical depth table wi
 Add `ebl=True` to any flux density call:
 
 ```python
-import blastwave as jsr
+import blastwave
 
 P = {
     "Eiso": 1e53, "lf": 300, "theta_c": 0.1,
@@ -23,10 +23,10 @@ P = {
 }
 
 # Without EBL
-flux = jsr.FluxDensity_tophat(t, nu, P)
+flux = blastwave.FluxDensity_tophat(t, nu, P)
 
 # With EBL absorption
-flux_ebl = jsr.FluxDensity_tophat(t, nu, P, ebl=True)
+flux_ebl = blastwave.FluxDensity_tophat(t, nu, P, ebl=True)
 ```
 
 The `ebl` parameter is available on all flux density methods:
@@ -34,10 +34,10 @@ The `ebl` parameter is available on all flux density methods:
 - `jet.FluxDensity(..., ebl=True)`
 - `jet.FluxDensity_forward(..., ebl=True)`
 - `jet.FluxDensity_reverse(..., ebl=True)`
-- `jsr.FluxDensity_tophat(..., ebl=True)`
-- `jsr.FluxDensity_gaussian(..., ebl=True)`
-- `jsr.FluxDensity_spherical(..., ebl=True)`
-- `jsr.FluxDensity_powerlaw(..., ebl=True)`
+- `blastwave.FluxDensity_tophat(..., ebl=True)`
+- `blastwave.FluxDensity_gaussian(..., ebl=True)`
+- `blastwave.FluxDensity_spherical(..., ebl=True)`
+- `blastwave.FluxDensity_powerlaw(..., ebl=True)`
 
 ### Standalone function
 

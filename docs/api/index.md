@@ -155,11 +155,14 @@ Spherical explosion shortcut. Uses `spread=False`, `tail=False`, `Uniform(ntheta
 
 ### Radiation models
 
-| String | Function | Description |
-|--------|----------|-------------|
-| `"sync"` | Optically thin synchrotron | Standard GRB afterglow model |
-| `"sync_ssa"` | Synchrotron + self-absorption | Required for radio light curves |
-| `"sync_dnp"` | Deep Newtonian phase | Late-time non-relativistic correction |
+| String | Description | See |
+|--------|-------------|-----|
+| `"sync"` | Optically thin synchrotron (Sari+ 1998) | [Radiation](../physics/radiation.md) |
+| `"sync_dnp"` | Deep Newtonian phase correction | [Radiation](../physics/radiation.md) |
+| `"sync_ssa"` | Synchrotron + self-absorption | [Radiation](../physics/radiation.md) |
+| `"sync_ssc"` | Synchrotron self-Compton (+ Klein-Nishina) | [Radiation](../physics/radiation.md) |
+| `"sync_thermal"` | Thermal + non-thermal synchrotron (MQ21) | [Radiation](../physics/radiation.md) |
+| `"numeric"` | Chang-Cooper electron kinetic equation | [Numeric Model](numeric.md) |
 
 ### Parameter dictionary `P`
 
@@ -179,3 +182,16 @@ All shortcut functions and `Jet.FluxDensity()` take a parameter dictionary `P`:
 | `theta_v` | rad | Viewing angle |
 | `d` | Mpc | Luminosity distance |
 | `z` | --- | Redshift |
+
+#### Model-specific parameters
+
+| Key | Units | Models | Description |
+|-----|-------|--------|-------------|
+| `eps_T` | --- | `sync_thermal` | Electron thermalization efficiency (default 1.0) |
+| `delta` | --- | `sync_thermal` | Power-law energy fraction (default `eps_e/eps_T`) |
+| `full_volume` | --- | `sync_thermal` | Set to 1.0 for FM25 full-volume post-shock |
+| `k` | --- | `sync_thermal` | CSM power-law index for full-volume mode |
+| `ssc_kn` | --- | `sync_ssc` | Set to 1 for Klein-Nishina corrections |
+| `n_gamma` | --- | `numeric` | Number of gamma bins (default 300) |
+| `gamma_max` | --- | `numeric` | Maximum electron Lorentz factor (default 1e8) |
+| `include_pp` | --- | `numeric` | Set to 1 for pair production |

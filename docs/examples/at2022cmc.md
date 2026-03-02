@@ -134,6 +134,8 @@ plt.tight_layout()
 plt.savefig('at2022cmc_radio.png', dpi=150)
 ```
 
+![AT2022cmc radio light curves](img/at2022cmc_radio.png)
+
 ## Discussion
 
 The thermal electron model improves the fit in two ways:
@@ -150,4 +152,8 @@ The thermal electron model improves the fit in two ways:
 
 ## Full script
 
-The complete analysis script is at [`tests/at2022cmc_radio.py`](https://github.com/nuclear-multimessenger-astronomy/blastwave/blob/main/tests/at2022cmc_radio.py).
+The complete analysis script is at [`examples/at2022cmc_radio.py`](https://github.com/nuclear-multimessenger-astronomy/blastwave/blob/main/examples/at2022cmc_radio.py). To regenerate the plot:
+
+```bash
+python examples/at2022cmc_radio.py
+```

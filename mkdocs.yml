@@ -40,11 +40,18 @@ nav:
   - Getting Started:
     - Installation: getting-started/installation.md
     - Quick Start: getting-started/quickstart.md
+  - Physics:
+    - Hydrodynamics: physics/hydrodynamics.md
+    - Radiation Models: physics/radiation.md
+    - Forward-Mapping Flux: physics/forward-mapping.md
   - Examples:
     - AT2018cow Radio: examples/at2018cow.md
     - AT2022cmc Radio: examples/at2022cmc.md
+    - GRB 140304A: examples/grb140304a.md
   - API Reference:
     - Overview: api/index.md
+    - Numeric Model: api/numeric.md
+    - EBL Absorption: api/ebl.md
 
 markdown_extensions:
   - admonition
@@ -68,4 +75,5 @@ plugins:
   - search
 
 extra_javascript:
+  - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js

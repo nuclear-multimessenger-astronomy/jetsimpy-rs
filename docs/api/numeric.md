@@ -21,7 +21,7 @@ This approach is more accurate for non-standard electron distributions and enabl
 ## Usage
 
 ```python
-import blastwave as jsr
+import blastwave
 
 P = {
     "Eiso": 1e53, "lf": 300, "theta_c": 0.1,
@@ -30,7 +30,7 @@ P = {
     "d": 100, "z": 0.01, "theta_v": 0.0,
 }
 
-flux = jsr.FluxDensity_tophat(t, nu, P, model="numeric")
+flux = blastwave.FluxDensity_tophat(t, nu, P, model="numeric")
 ```
 
 ## Parameters
