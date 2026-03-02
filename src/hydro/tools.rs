@@ -4,6 +4,7 @@ use crate::math::root::brentq;
 pub struct Tool {
     nwind: f64,
     nism: f64,
+    k: f64,
     rtol: f64,
     cal_level: i32,
     factor: f64,
@@ -14,6 +15,18 @@ impl Tool {
         Tool {
             nwind,
             nism,
+            k: 2.0,
+            rtol,
+            cal_level,
+            factor: 2.0,
+        }
+    }
+
+    pub fn new_with_k(nwind: f64, nism: f64, k: f64, rtol: f64, cal_level: i32) -> Self {
+        Tool {
+            nwind,
+            nism,
+            k,
             rtol,
             cal_level,
             factor: 2.0,
@@ -25,21 +38,38 @@ impl Tool {
     }
 
     pub fn solve_density(&self, r: f64) -> f64 {
-        let r17 = r / 1e17;
-        self.nwind / (r17 * r17) + self.nism
+        let r_ratio = r / 1e17;
+        if self.k == 2.0 {
+            self.nwind / (r_ratio * r_ratio) + self.nism
+        } else {
+            self.nwind / r_ratio.powf(self.k) + self.nism
+        }
+    }
+
+    /// Integral of n(r)·r² dr from 0 to R, i.e. the swept number of particles per sr.
+    /// Used for initial conditions with general k.
+    pub fn solve_swept_number(&self, r: f64) -> f64 {
+        let ism = self.nism * r * r * r / 3.0;
+        if self.nwind == 0.0 {
+            return ism;
+        }
+        let r17 = 1e17_f64;
+        let csm = self.nwind * r17.powf(self.k) * r.powf(3.0 - self.k) / (3.0 - self.k);
+        csm + ism
     }
 
     pub fn solve_s(&self, r: f64, beta_gamma_sq: f64) -> f64 {
-        let r17 = r / 1e17;
-        let k = 2.0 * self.nwind / (self.nwind + self.nism * r17 * r17);
+        let r_ratio = r / 1e17;
+        let n_csm = self.nwind / if self.k == 2.0 { r_ratio * r_ratio } else { r_ratio.powf(self.k) };
+        let k_eff = if n_csm + self.nism > 0.0 { self.k * n_csm / (n_csm + self.nism) } else { 0.0 };
 
         match self.cal_level {
             0 => 1.0,
-            1 => 0.52935729 - 0.05698377 * k - 0.00158176 * k * k - 0.00939548 * k * k * k,
+            1 => 0.52935729 - 0.05698377 * k_eff - 0.00158176 * k_eff * k_eff - 0.00939548 * k_eff * k_eff * k_eff,
             2 => {
                 let s_bm =
-                    0.52935729 - 0.05698377 * k - 0.00158176 * k * k - 0.00939548 * k * k * k;
-                let s_st = 1.635 - 0.651 * k;
+                    0.52935729 - 0.05698377 * k_eff - 0.00158176 * k_eff * k_eff - 0.00939548 * k_eff * k_eff * k_eff;
+                let s_st = 1.635 - 0.651 * k_eff;
                 (s_st + s_bm * self.factor * beta_gamma_sq)
                     / (1.0 + self.factor * beta_gamma_sq)
             }
@@ -205,5 +235,45 @@ mod tests {
             + gamma * ((1.0 - s) * msw_eb + mej_eb)
             - 1.0;
         assert!(residual.abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_solve_density_k2_matches_original() {
+        // new_with_k(k=2) should give identical results to new()
+        let t_old = Tool::new(1.0, 3.0, 1e-6, 1);
+        let t_new = Tool::new_with_k(1.0, 3.0, 2.0, 1e-6, 1);
+        for &r in &[1e16, 1e17, 1e18, 1e19] {
+            assert!((t_old.solve_density(r) - t_new.solve_density(r)).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_solve_density_general_k() {
+        // k=0: n(r) = nwind * (r/1e17)^0 + nism = nwind + nism (constant)
+        let t = Tool::new_with_k(2.0, 3.0, 0.0, 1e-6, 1);
+        assert!((t.solve_density(1e16) - 5.0).abs() < 1e-10);
+        assert!((t.solve_density(1e18) - 5.0).abs() < 1e-10);
+
+        // k=1: n(r) = nwind / (r/1e17) + nism
+        let t = Tool::new_with_k(2.0, 0.0, 1.0, 1e-6, 1);
+        // At r=1e17: nwind/(1) = 2
+        assert!((t.solve_density(1e17) - 2.0).abs() < 1e-10);
+        // At r=2e17: nwind/(2) = 1
+        assert!((t.solve_density(2e17) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_solve_swept_number() {
+        // ISM only: integral = nism * R^3 / 3
+        let t = Tool::new_with_k(0.0, 1.0, 2.0, 1e-6, 1);
+        let r = 1e18;
+        let expected = 1.0 * r * r * r / 3.0;
+        assert!((t.solve_swept_number(r) - expected).abs() / expected < 1e-10);
+
+        // Wind only (k=2): integral = nwind * (1e17)^2 * r
+        let t = Tool::new_with_k(1.0, 0.0, 2.0, 1e-6, 1);
+        let r = 1e18;
+        let expected = 1.0 * (1e17_f64).powi(2) * r / (3.0 - 2.0);
+        assert!((t.solve_swept_number(r) - expected).abs() / expected < 1e-10);
     }
 }

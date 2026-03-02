@@ -3,9 +3,6 @@ use crate::afterglow::blast::{Blast, ShockType};
 use crate::afterglow::models::Dict;
 use crate::afterglow::ssa;
 
-// Planck constant in CGS
-const H_PLANCK: f64 = 6.626070e-27; // erg·s
-
 // ---------------------------------------------------------------------------
 // Klein-Nishina cross-section ratio σ_KN / σ_T
 // ---------------------------------------------------------------------------

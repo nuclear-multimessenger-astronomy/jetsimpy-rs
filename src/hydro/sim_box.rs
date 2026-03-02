@@ -70,11 +70,15 @@ pub struct SimBox {
     // Config reference for RS
     include_reverse_shock: bool,
     config_rs: Option<JetConfig>,
+
+    // Forward shock energy injection (magnetar spin-down, multiple episodes)
+    // Each element: (l0_per_sr_c2, t0, q, ts)
+    magnetar_episodes: Vec<(f64, f64, f64, f64)>,
 }
 
 impl SimBox {
     pub fn new(config: &JetConfig) -> Self {
-        let tool = Tool::new(config.nwind, config.nism, config.rtol, config.cal_level);
+        let tool = Tool::new_with_k(config.nwind, config.nism, config.k, config.rtol, config.cal_level);
         let ntheta = config.eb.len();
 
         let mut theta = vec![0.0; ntheta];
@@ -120,6 +124,12 @@ impl SimBox {
             crossing_idx: Vec::new(),
             include_reverse_shock: config.include_reverse_shock,
             config_rs: if config.include_reverse_shock { Some(config.clone()) } else { None },
+            magnetar_episodes: config.magnetar_l0.iter().enumerate().map(|(i, &l0)| {
+                let t0 = config.magnetar_t0.get(i).copied().unwrap_or(1.0);
+                let q = config.magnetar_q.get(i).copied().unwrap_or(2.0);
+                let ts = config.magnetar_ts.get(i).copied().unwrap_or(0.0);
+                (l0 / (4.0 * PI * C_SPEED * C_SPEED), t0, q, ts)
+            }).filter(|&(l0_c2, _, _, _)| l0_c2 > 0.0).collect(),
         };
 
         sb.solve_primitive();
@@ -136,6 +146,10 @@ impl SimBox {
     }
 
     pub fn solve_pde(&mut self) {
+        if !self.magnetar_episodes.is_empty() && self.spread_mode == SpreadMode::Pde {
+            eprintln!("WARNING: magnetar injection not supported in PDE mode; use spread_mode=\"ode\" or \"none\"");
+        }
+
         match self.spread_mode {
             SpreadMode::None => self.solve_no_spread(),
             SpreadMode::Ode => self.solve_ode_spread(),
@@ -181,6 +195,7 @@ impl SimBox {
             let mut eqn = FRShockEqn::new(
                 config.nwind,
                 config.nism,
+                config.k,
                 gamma4,
                 mej,
                 eps4_init,
@@ -570,6 +585,7 @@ impl SimBox {
     fn ode_rhs_spread_cell(
         &self,
         state: &[f64; Self::ODE_NVAR],
+        t: f64,
         theta0_i: f64,
         theta_c: f64,
         spread: bool,
@@ -648,8 +664,17 @@ impl SimBox {
             + (1.0 - s) * dgamma_du * msw
             + dgamma_du * mej;
 
+        // Magnetar spin-down injection: sum over episodes, L_inj / c² [g/s/sr]
+        let l_inj: f64 = self.magnetar_episodes.iter().map(|&(l0_c2, t0, q, ts)| {
+            if t >= ts {
+                l0_c2 * (1.0 + (t - ts) / t0).powf(-q)
+            } else {
+                0.0
+            }
+        }).sum();
+
         let dbg_sq_dt = if deb_du.abs() > 1e-60 {
-            (source * (1.0 - deb_dmsw) - deb_dr * dr_dt) / deb_du
+            (source * (1.0 - deb_dmsw) - deb_dr * dr_dt + l_inj) / deb_du
         } else {
             0.0
         };
@@ -662,6 +687,7 @@ impl SimBox {
     fn ode_spread_step_rk45(
         &self,
         state: &[f64; Self::ODE_NVAR],
+        t: f64,
         dt: f64,
         theta0_i: f64,
         theta_c: f64,
@@ -670,15 +696,15 @@ impl SimBox {
     ) -> ([f64; Self::ODE_NVAR], f64, bool) {
         const N: usize = SimBox::ODE_NVAR;
 
-        let k1 = self.ode_rhs_spread_cell(state, theta0_i, theta_c, spread);
+        let k1 = self.ode_rhs_spread_cell(state, t, theta0_i, theta_c, spread);
 
         let mut s2 = [0.0; N];
         for j in 0..N { s2[j] = state[j] + k1[j] * dt * 2.0 / 9.0; }
-        let k2 = self.ode_rhs_spread_cell(&s2, theta0_i, theta_c, spread);
+        let k2 = self.ode_rhs_spread_cell(&s2, t + dt * 2.0 / 9.0, theta0_i, theta_c, spread);
 
         let mut s3 = [0.0; N];
         for j in 0..N { s3[j] = state[j] + k1[j] * dt / 12.0 + k2[j] * dt / 4.0; }
-        let k3 = self.ode_rhs_spread_cell(&s3, theta0_i, theta_c, spread);
+        let k3 = self.ode_rhs_spread_cell(&s3, t + dt / 3.0, theta0_i, theta_c, spread);
 
         let mut s4 = [0.0; N];
         for j in 0..N {
@@ -686,7 +712,7 @@ impl SimBox {
                 - k2[j] * dt * 243.0 / 128.0
                 + k3[j] * dt * 135.0 / 64.0;
         }
-        let k4 = self.ode_rhs_spread_cell(&s4, theta0_i, theta_c, spread);
+        let k4 = self.ode_rhs_spread_cell(&s4, t + dt * 3.0 / 4.0, theta0_i, theta_c, spread);
 
         let mut s5 = [0.0; N];
         for j in 0..N {
@@ -695,7 +721,7 @@ impl SimBox {
                 - k3[j] * dt * 27.0 / 5.0
                 + k4[j] * dt * 16.0 / 15.0;
         }
-        let k5 = self.ode_rhs_spread_cell(&s5, theta0_i, theta_c, spread);
+        let k5 = self.ode_rhs_spread_cell(&s5, t + dt, theta0_i, theta_c, spread);
 
         let mut s6 = [0.0; N];
         for j in 0..N {
@@ -705,7 +731,7 @@ impl SimBox {
                 + k4[j] * dt * 4.0 / 27.0
                 + k5[j] * dt * 5.0 / 144.0;
         }
-        let k6 = self.ode_rhs_spread_cell(&s6, theta0_i, theta_c, spread);
+        let k6 = self.ode_rhs_spread_cell(&s6, t + dt * 5.0 / 6.0, theta0_i, theta_c, spread);
 
         // 5th-order solution
         let mut result = [0.0; N];
@@ -799,7 +825,7 @@ impl SimBox {
                 dt = dt.min(dt_max);
 
                 let (new_state, new_dt, succeeded) =
-                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol, true);
+                    self.ode_spread_step_rk45(&state, t, dt, theta0_i, theta_c, rtol, true);
 
                 if succeeded {
                     t += dt;
@@ -919,7 +945,7 @@ impl SimBox {
                 dt = dt.min(dt_max);
 
                 let (new_state, new_dt, succeeded) =
-                    self.ode_spread_step_rk45(&state, dt, theta0_i, theta_c, rtol, false);
+                    self.ode_spread_step_rk45(&state, t, dt, theta0_i, theta_c, rtol, false);
 
                 if succeeded {
                     t += dt;

@@ -6,6 +6,7 @@ pub const SIGMA_T: f64 = 6.6524587e-25;
 pub const E_CHARGE: f64 = 4.803204673e-10;
 pub const MPC: f64 = 3.09e24;
 pub const PI: f64 = std::f64::consts::PI;
+pub const H_PLANCK: f64 = 6.626070e-27; // erg·s (Planck constant)
 pub const MAS: f64 = 1.0 / 206264806.24709466;
 
 #[cfg(test)]

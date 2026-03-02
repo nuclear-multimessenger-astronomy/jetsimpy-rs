@@ -23,6 +23,7 @@ class Jet:
         tail=True,            # [isotropic tail]: add an extremely low energy low velocity isotropic tail for safty
         spread=True,          # [spreading]: spread or not
         spread_mode=None,     # [spread mode]: "none", "ode" (VegasAfterglow-style), or "pde" (finite-volume). Overrides spread if set.
+        k=2.0,                # [CSM density power-law index]: n_csm ∝ r^{-k}. k=0 ISM, k=2 wind.
         cal_level=1,          # [calibration level]: 0: no calibration. 1: BM all time. 2: smoothly go from BM to ST (ST is dangerous)
         rtol=1e-6,            # [primitive variable solver tolerance]: Don't change it unless you know what is going on.
         cfl=0.9,              # [cfl number]: Don't change it unless you know what is going on.
@@ -34,6 +35,10 @@ class Jet:
         t0_injection=0.0,     # [energy injection timescale]: (s)
         l_injection=0.0,      # [energy injection luminosity]: (erg/s)
         m_dot_injection=0.0,  # [mass injection rate]: (g/s)
+        magnetar_l0=None,      # [erg/s] isotropic-equiv injection luminosity (scalar or list; 0/None = disabled)
+        magnetar_t0=None,      # [s] spin-down timescale (scalar or list)
+        magnetar_q=None,       # power-law decay index (scalar or list)
+        magnetar_ts=None,      # [s] injection start time (scalar or list; 0 = from beginning)
     ):
         # save
         theta, energy, lf = profiles
@@ -50,6 +55,7 @@ class Jet:
         self.tail = tail
         self.spread = spread
         self.spread_mode = spread_mode
+        self.k = k
         self.cal_level = cal_level
         self.include_reverse_shock = include_reverse_shock
         self.sigma = sigma
@@ -59,6 +65,19 @@ class Jet:
         self.t0_injection = t0_injection
         self.l_injection = l_injection
         self.m_dot_injection = m_dot_injection
+        # Normalize magnetar params: scalar → single-element list, None → empty list
+        def _to_list(v, default=None):
+            if v is None:
+                return [] if default is None else default
+            if isinstance(v, (int, float)):
+                return [float(v)]
+            return list(v)
+        ml0 = _to_list(magnetar_l0)
+        n_ep = len(ml0)
+        self.magnetar_l0 = ml0
+        self.magnetar_t0 = _to_list(magnetar_t0, [1.0] * n_ep)
+        self.magnetar_q = _to_list(magnetar_q, [2.0] * n_ep)
+        self.magnetar_ts = _to_list(magnetar_ts, [0.0] * n_ep)
 
         # solve jet
         jet_config = self._configJet()
@@ -129,7 +148,7 @@ class Jet:
         return I
     
     # flux density [mJy]
-    def FluxDensity(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True, flux_method=None):
+    def FluxDensity(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True, flux_method=None, ebl=False):
         # config parameters
         self._jet.configParameters(P)
 
@@ -147,10 +166,16 @@ class Jet:
         except Exception as e:
             raise e
 
-        return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+        flux = L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+
+        if ebl:
+            tau = _extension.ebl_tau_array(np.atleast_1d(nu * (1 + P["z"])), P["z"])
+            flux = flux * np.exp(-tau)
+
+        return flux
     
     # flux density from forward shock only [mJy]
-    def FluxDensity_forward(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+    def FluxDensity_forward(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True, ebl=False):
         self._jet.configParameters(P)
         if isinstance(model, str):
             self._jet.configIntensity(model)
@@ -158,10 +183,16 @@ class Jet:
             self._jet.configIntensityPy(model)
 
         L = self._jet.calculateLuminosityForward(t, nu, rtol, max_iter, force_return)
-        return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+        flux = L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+
+        if ebl:
+            tau = _extension.ebl_tau_array(np.atleast_1d(nu * (1 + P["z"])), P["z"])
+            flux = flux * np.exp(-tau)
+
+        return flux
 
     # flux density from reverse shock only [mJy]
-    def FluxDensity_reverse(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
+    def FluxDensity_reverse(self, t, nu, P, model="sync", rtol=1e-3, max_iter=100, force_return=True, ebl=False):
         self._jet.configParameters(P)
         if isinstance(model, str):
             self._jet.configIntensity(model)
@@ -169,7 +200,13 @@ class Jet:
             self._jet.configIntensityPy(model)
 
         L = self._jet.calculateLuminosityReverse(t, nu, rtol, max_iter, force_return)
-        return L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+        flux = L * (1 + P["z"]) / 4 / np.pi / (P["d"] * _MPC) ** 2 / _mJy
+
+        if ebl:
+            tau = _extension.ebl_tau_array(np.atleast_1d(nu * (1 + P["z"])), P["z"])
+            flux = flux * np.exp(-tau)
+
+        return flux
 
     # flux [erg/s/cm^2]
     def Flux(self, t, nu1, nu2, P, model="sync", rtol=1e-3, max_iter=100, force_return=True):
@@ -270,6 +307,7 @@ class Jet:
         jet_config = _extension.JetConfig()
         jet_config.nwind = self.nwind
         jet_config.nism = self.nism
+        jet_config.k = self.k
         jet_config.tmin = self.tmin
         jet_config.tmax = self.tmax
         jet_config.rtol = self.rtol
@@ -291,6 +329,10 @@ class Jet:
         jet_config.t0_injection = self.t0_injection
         jet_config.l_injection = self.l_injection
         jet_config.m_dot_injection = self.m_dot_injection
+        jet_config.magnetar_l0 = self.magnetar_l0
+        jet_config.magnetar_t0 = self.magnetar_t0
+        jet_config.magnetar_q = self.magnetar_q
+        jet_config.magnetar_ts = self.magnetar_ts
 
         # generate grid
         theta_edge = self.grid
@@ -317,7 +359,10 @@ class Jet:
         
         # analytically expand (coast) the blastwave from t=0 to t=tmin
         R0 = beta0 * _C * self.tmin
-        Msw0 = self.nwind * _Mass_P * R0 / 1e17 * 1e51 + self.nism * _Mass_P * R0 * R0 * R0 / 3.0
+        _R0_REF = 1e17
+        Msw_ism = self.nism * _Mass_P * R0 ** 3 / 3.0
+        Msw_csm = self.nwind * _Mass_P * _R0_REF ** self.k * R0 ** (3.0 - self.k) / (3.0 - self.k) if self.nwind > 0 else 0.0
+        Msw0 = Msw_csm + Msw_ism
         Eb0 = E0 + Mej0 + Msw0
         
         # config jet initial condition

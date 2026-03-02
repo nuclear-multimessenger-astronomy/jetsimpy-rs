@@ -252,6 +252,7 @@ impl FRShockEqn {
     pub fn new(
         nwind: f64,
         nism: f64,
+        k: f64,
         gamma4: f64,
         m4_init: f64,
         eps4_init: f64,
@@ -289,7 +290,7 @@ impl FRShockEqn {
             t0_injection,
             l_injection,
             m_dot_injection,
-            tool: Tool::new(nwind, nism, rtol, 1),
+            tool: Tool::new_with_k(nwind, nism, k, rtol, 1),
         }
     }
 
@@ -298,9 +299,8 @@ impl FRShockEqn {
         let beta4 = (1.0 - 1.0 / (self.gamma4 * self.gamma4)).sqrt();
         let r0 = beta4 * C_SPEED * t0;
 
-        // Enclosed ambient mass from medium density profile
-        let rho_ambient = self.tool.solve_density(r0) * MASS_P;
-        let m2_init = rho_ambient * r0 * r0 * r0 / 3.0;
+        // Enclosed ambient mass from medium density profile (general k)
+        let m2_init = self.tool.solve_swept_number(r0) * MASS_P;
 
         // Initial Lorentz factor from momentum conservation (approximate)
         let gamma_init = if m2_init < 1e-20 * self.m4_init {
@@ -1062,6 +1062,7 @@ mod tests {
     fn test_init_state() {
         let eqn = FRShockEqn::new(
             0.0, 1.0,    // ISM only
+            2.0,          // k = 2 (wind profile exponent)
             100.0,        // Γ₄ = 100
             1e-5,         // m4
             1e48,         // eps4
@@ -1082,7 +1083,7 @@ mod tests {
     #[test]
     fn test_derivatives_finite() {
         let mut eqn = FRShockEqn::new(
-            0.0, 1.0, 100.0, 1e-5, 1e48, 0.0,
+            0.0, 1.0, 2.0, 100.0, 1e-5, 1e48, 0.0,
             0.1, 0.01, 2.3, 0.1, 0.01, 2.3,
             0.0, 0.0, 0.0, 1e-6,
         );
@@ -1097,7 +1098,7 @@ mod tests {
     #[test]
     fn test_rk45_step() {
         let mut eqn = FRShockEqn::new(
-            0.0, 1.0, 100.0, 1e-5, 1e48, 0.0,
+            0.0, 1.0, 2.0, 100.0, 1e-5, 1e48, 0.0,
             0.1, 0.01, 2.3, 0.1, 0.01, 2.3,
             0.0, 0.0, 0.0, 1e-6,
         );
@@ -1119,7 +1120,7 @@ mod tests {
         let mej = 1e52 / (4.0 * PI * gamma4 * C2);
         let eps4 = gamma4 * mej * C2; // total energy = Γ m c²
         let mut eqn = FRShockEqn::new(
-            0.0, 1.0, gamma4, mej, eps4, 0.0,
+            0.0, 1.0, 2.0, gamma4, mej, eps4, 0.0,
             0.1, 0.01, 2.3, 0.1, 0.01, 2.3,
             0.0, 0.0, 0.0, 1e-3,
         );

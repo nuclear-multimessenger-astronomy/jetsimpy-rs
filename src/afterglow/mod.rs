@@ -6,3 +6,6 @@ pub mod ssa;
 pub mod inverse_compton;
 pub mod forward_grid;
 pub mod thermal;
+pub mod ebl;
+pub mod chang_cooper;
+pub mod pairs;

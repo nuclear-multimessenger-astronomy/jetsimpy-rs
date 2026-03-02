@@ -21,6 +21,13 @@ def Gaussian(theta_c, Eiso, lf0=1e100):
     
     return (theta, energy, lf)
 
+# spherical explosion (uniform energy at all angles)
+def Spherical(Eiso, lf0=1e100):
+    theta = np.linspace(0, np.pi, 10000)
+    energy = Eiso * np.ones_like(theta)
+    lf = lf0 * np.ones_like(theta)
+    return (theta, energy, lf)
+
 # power-law jet
 def PowerLaw(theta_c, Eiso, lf0=1e100, s=4.0):
     theta = theta = np.linspace(0, np.pi, 10000)

@@ -157,6 +157,7 @@ pub fn get_radiation_model(name: &str) -> Option<RadiationModel> {
         "sync_ssa" => Some(crate::afterglow::ssa::sync_ssa),
         "sync_ssc" => Some(crate::afterglow::inverse_compton::sync_ssc),
         "sync_thermal" => Some(crate::afterglow::thermal::sync_thermal),
+        "numeric" => Some(crate::afterglow::chang_cooper::sync_numeric),
         _ => None,
     }
 }

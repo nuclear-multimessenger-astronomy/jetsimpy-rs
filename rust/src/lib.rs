@@ -156,12 +156,29 @@ use jetsimpy_rs::afterglow::blast::Blast;
 use jetsimpy_rs::afterglow::eats::EATS;
 use jetsimpy_rs::afterglow::afterglow::Afterglow;
 use jetsimpy_rs::afterglow::forward_grid::ForwardGrid;
+use jetsimpy_rs::afterglow::ebl;
+
+#[pyfunction]
+#[pyo3(name = "ebl_tau")]
+fn py_ebl_tau(nu: f64, z: f64) -> f64 {
+    ebl::ebl_tau(nu, z)
+}
+
+#[pyfunction]
+#[pyo3(name = "ebl_tau_array")]
+fn py_ebl_tau_array<'py>(py: Python<'py>, nu: PyReadonlyArray1<f64>, z: f64) -> Bound<'py, PyArray1<f64>> {
+    let nu_slice = nu.as_slice().unwrap();
+    let result: Vec<f64> = nu_slice.iter().map(|&n| ebl::ebl_tau(n, z)).collect();
+    PyArray1::from_vec(py, result)
+}
 
 #[pymodule]
 fn jetsimpy_extension(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyJetConfig>()?;
     m.add_class::<PyJet>()?;
     m.add_class::<PyBlast>()?;
+    m.add_function(wrap_pyfunction!(py_ebl_tau, m)?)?;
+    m.add_function(wrap_pyfunction!(py_ebl_tau_array, m)?)?;
     Ok(())
 }
 
@@ -184,6 +201,8 @@ pub struct PyJetConfig {
     pub nwind: f64,
     #[pyo3(get, set)]
     pub nism: f64,
+    #[pyo3(get, set)]
+    pub k: f64,
     #[pyo3(get, set)]
     pub tmin: f64,
     #[pyo3(get, set)]
@@ -218,6 +237,16 @@ pub struct PyJetConfig {
     pub l_injection: f64,
     #[pyo3(get, set)]
     pub m_dot_injection: f64,
+
+    // Forward shock energy injection (magnetar spin-down, multiple episodes)
+    #[pyo3(get, set)]
+    pub magnetar_l0: Vec<f64>,
+    #[pyo3(get, set)]
+    pub magnetar_t0: Vec<f64>,
+    #[pyo3(get, set)]
+    pub magnetar_q: Vec<f64>,
+    #[pyo3(get, set)]
+    pub magnetar_ts: Vec<f64>,
 }
 
 #[pymethods]
@@ -233,6 +262,7 @@ impl PyJetConfig {
             r: Vec::new(),
             nwind: 0.0,
             nism: 0.0,
+            k: 2.0,
             tmin: 10.0,
             tmax: 1e10,
             rtol: 1e-6,
@@ -249,6 +279,10 @@ impl PyJetConfig {
             t0_injection: 0.0,
             l_injection: 0.0,
             m_dot_injection: 0.0,
+            magnetar_l0: Vec::new(),
+            magnetar_t0: Vec::new(),
+            magnetar_q: Vec::new(),
+            magnetar_ts: Vec::new(),
         }
     }
 }
@@ -277,6 +311,7 @@ impl PyJetConfig {
             r: self.r.clone(),
             nwind: self.nwind,
             nism: self.nism,
+            k: self.k,
             tmin: self.tmin,
             tmax: self.tmax,
             rtol: self.rtol,
@@ -293,6 +328,10 @@ impl PyJetConfig {
             t0_injection: self.t0_injection,
             l_injection: self.l_injection,
             m_dot_injection: self.m_dot_injection,
+            magnetar_l0: self.magnetar_l0.clone(),
+            magnetar_t0: self.magnetar_t0.clone(),
+            magnetar_q: self.magnetar_q.clone(),
+            magnetar_ts: self.magnetar_ts.clone(),
         }
     }
 }

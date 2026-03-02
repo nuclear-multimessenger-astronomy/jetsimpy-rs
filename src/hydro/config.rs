@@ -20,6 +20,7 @@ pub struct JetConfig {
     pub r: Vec<f64>,
     pub nwind: f64,
     pub nism: f64,
+    pub k: f64,
     pub tmin: f64,
     pub tmax: f64,
     pub rtol: f64,
@@ -36,10 +37,18 @@ pub struct JetConfig {
     pub eps_b_rs: f64,        // magnetic field energy fraction (reverse shock)
     pub p_rs: f64,            // electron spectral index (reverse shock)
 
-    // Energy injection parameters
+    // Energy injection parameters (reverse shock)
     pub t0_injection: f64,    // characteristic injection time (0 = no injection)
     pub l_injection: f64,     // injection luminosity (erg/s/sr)
     pub m_dot_injection: f64, // mass injection rate (g/s/sr)
+
+    // Forward shock energy injection (magnetar spin-down)
+    // Each Vec element defines one injection episode.
+    // L_i(t) = l0[i] * (1 + (t - ts[i])/t0[i])^(-q[i])  for t >= ts[i], else 0
+    pub magnetar_l0: Vec<f64>,    // isotropic-equivalent luminosity [erg/s] (empty = disabled)
+    pub magnetar_t0: Vec<f64>,    // spin-down timescale [s]
+    pub magnetar_q: Vec<f64>,     // power-law decay index (2 = magnetic dipole)
+    pub magnetar_ts: Vec<f64>,    // injection start time [s] (0 = from beginning)
 }
 
 impl Default for JetConfig {
@@ -53,6 +62,7 @@ impl Default for JetConfig {
             r: Vec::new(),
             nwind: 0.0,
             nism: 0.0,
+            k: 2.0,
             tmin: 10.0,
             tmax: 1e10,
             rtol: 1e-6,
@@ -69,6 +79,10 @@ impl Default for JetConfig {
             t0_injection: 0.0,
             l_injection: 0.0,
             m_dot_injection: 0.0,
+            magnetar_l0: Vec::new(),
+            magnetar_t0: Vec::new(),
+            magnetar_q: Vec::new(),
+            magnetar_ts: Vec::new(),
         }
     }
 }

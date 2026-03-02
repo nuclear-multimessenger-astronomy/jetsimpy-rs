@@ -33,6 +33,9 @@ The following features have been added beyond the original jetsimpy:
 - **Forward-mapping flux computation** (`flux_method="forward"`): VegasAfterglow-style pre-computed radiation grid with binary search + interpolation, eliminating EATS adaptive quadrature overhead for on-axis viewing angles
 - **EATS quadrature optimizations**: On-axis peak-finding skip (peak is always at θ=0 by symmetry), off-axis peak subsampling (20 points instead of all cells), and pre-allocated integration buffers
 - **Primitive-variable no-spread solver**: No-spread mode now uses per-cell primitive-variable RK45 (shared with ODE mode), eliminating conservative-to-primitive root-finding and heap allocations per time step
+- **Numeric synchrotron model** (`numeric`): Chang-Cooper implicit finite-difference solver for the electron kinetic equation, computing synchrotron emissivity and self-absorption from the full electron distribution N(γ) rather than analytic piecewise power-law approximations
+- **Pair production** (`include_pp=1`): Optional γ+γ → e⁺e⁻ pair production iteration within the numeric model, using the Miceli & Nava (2022) cross-section kernel
+- **EBL absorption** (`ebl=True`): Franceschini & Rodighiero (2018) extragalactic background light optical depth table, applied as exp(-τ) attenuation to observed flux at high photon energies
 
 ## Project Structure
 
@@ -369,6 +372,11 @@ For optically thick emission at all velocities, both thin-shell and full-volume 
 - Ferguson, R. & Margalit, B. (2025). "Numerical Modeling of Relativistic Effects in Synchrotron-Emitting Shocks." [arXiv:2509.16313](https://arxiv.org/abs/2509.16313) | [GitHub](https://github.com/RossFerguson1/synchrotron_shock_model)
 - Sari, R., Piran, T., & Narayan, R. (1998). "Spectra and Light Curves of Gamma-Ray Burst Afterglows." *The Astrophysical Journal Letters*, 497(1), L17.
 - Wijers, R. A. M. J., & Galama, T. J. (1999). "Physical Parameters of GRB 970508 and GRB 971214 from Their Afterglow Synchrotron Emission." *The Astrophysical Journal*, 523(1), 177.
+- Nedora, V. et al. "PyBlastAfterglowMag." [GitHub](https://github.com/vsevolodnedora/PyBlastAfterglowMag)
+- Franceschini, A. & Rodighiero, G. (2018). "The extragalactic background light revisited and the cosmic photon-photon opacity." *Astronomy & Astrophysics*, 614, C1.
+- Miceli, D. & Nava, L. (2022). "Pair production in GRB afterglows." *Monthly Notices of the Royal Astronomical Society*, 510(2), 2391-2404.
+- Dermer, C. D. (2009). "High Energy Radiation from Black Holes." Princeton University Press.
+- Chang, J. & Cooper, G. (1970). "A practical difference scheme for Fokker-Planck equations." *Journal of Computational Physics*, 6(1), 1-16.
 - Original implementation: [haowang-astro/jetsimpy](https://github.com/haowang-astro/jetsimpy)
 
 ## License
