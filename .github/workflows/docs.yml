@@ -37,10 +37,10 @@ jobs:
         run: pip install .
 
       - name: Install docs dependencies
-        run: pip install mkdocs-material markdown-exec matplotlib scipy
+        run: pip install zensical markdown-exec matplotlib scipy
 
       - name: Build docs
-        run: mkdocs build --strict
+        run: zensical build --clean
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

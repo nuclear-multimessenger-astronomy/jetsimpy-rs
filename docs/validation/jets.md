@@ -50,6 +50,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "jets_multiband",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -85,7 +86,8 @@ ax.grid(True, alpha=0.3)
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -130,6 +132,7 @@ from blastwave import FluxDensity_tophat, FluxDensity_gaussian, FluxDensity_powe
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "jets_structure",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -186,7 +189,8 @@ plt.suptitle("Jet Structure: X-ray Afterglow", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -231,6 +235,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "jets_medium",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -265,7 +270,8 @@ plt.suptitle("Circumburst Medium: ISM vs Wind", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 

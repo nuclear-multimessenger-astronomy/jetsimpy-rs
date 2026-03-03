@@ -48,6 +48,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "dynamics_spread",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -90,7 +91,8 @@ plt.suptitle("Lateral Spreading Modes", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -143,6 +145,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "dynamics_rs",
 })
 
 P = dict(Eiso=1e52, lf=300, theta_c=0.1, n0=1.0, A=0.0,
@@ -186,7 +189,8 @@ plt.suptitle("Reverse Shock Decomposition (duration = 1000 s)", fontweight="bold
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -243,6 +247,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "dynamics_magnetar",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -282,7 +287,8 @@ plt.suptitle(r"Magnetar Energy Injection ($\Gamma_0 = 100$)", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 

@@ -99,6 +99,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "thermal_sed",
 })
 
 DAY = 86400.0
@@ -152,7 +153,8 @@ plt.suptitle("Thermal Electron Emission — Spectral Energy Distribution", fontw
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -171,6 +173,7 @@ from blastwave import FluxDensity_tophat
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "thermal_lc",
 })
 
 DAY = 86400.0
@@ -230,7 +233,8 @@ plt.suptitle("Thermal Electron Emission — Light Curves", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -284,6 +288,7 @@ from blastwave import Jet, Spherical, Uniform
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "thermal_fm25",
 })
 
 DAY = 86400.0
@@ -395,7 +400,8 @@ plt.suptitle(
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 

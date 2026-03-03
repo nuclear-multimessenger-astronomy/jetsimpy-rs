@@ -45,6 +45,7 @@ from blastwave import Jet, TopHat, ForwardJetRes
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "radiation_ssc",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -82,7 +83,8 @@ plt.suptitle(r"Synchrotron Self-Compton ($\varepsilon_e=0.3$, $\varepsilon_B=10^
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
@@ -172,6 +174,7 @@ from blastwave import FluxDensity_tophat
 plt.rcParams.update({
     "font.size": 13, "axes.labelsize": 14, "axes.titlesize": 14,
     "xtick.labelsize": 12, "ytick.labelsize": 12, "legend.fontsize": 10,
+    "svg.hashsalt": "radiation_advanced",
 })
 
 t = np.geomspace(10, 1e8, 200)
@@ -268,7 +271,8 @@ plt.suptitle("Advanced Radiation Models", fontweight="bold")
 plt.tight_layout()
 buf = io.StringIO()
 plt.savefig(buf, format="svg")
-print(buf.getvalue())
+svg = buf.getvalue()
+print(f'<div class="md-typeset__scrollwrap">{svg[svg.index("<svg"):]}</div>')
 plt.close()
 ```
 
