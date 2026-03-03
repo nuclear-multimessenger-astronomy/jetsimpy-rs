@@ -52,6 +52,12 @@ nav:
     - Reverse Shock: examples/reverse_shock.md
     - Numeric Model: examples/numeric_comparison.md
     - Physics Showcase: examples/grb_afterglow.md
+  - Validation:
+    - Overview: validation/index.md
+    - Jets: validation/jets.md
+    - Dynamics: validation/dynamics.md
+    - Radiation: validation/radiation.md
+    - Thermal Electrons: validation/thermal.md
   - Benchmarks: benchmarks.md
   - API Reference:
     - Overview: api/index.md
@@ -71,13 +77,19 @@ markdown_extensions:
       generic: true
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: python
+          class: python
+          validator: !!python/name:markdown_exec.validator
+          format: !!python/name:markdown_exec.formatter
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.details
 
 plugins:
   - search
+  - markdown-exec
 
 extra_javascript:
   - javascripts/mathjax.js
