@@ -339,19 +339,16 @@ bG_sh = brentq(lambda x: _bG_fluid_from_shock(x) - bG_fluid, 0.01, 100.0)
 
 nu_compare = np.geomspace(1e6, 1e15, 300)
 
-# FM25 reference SED
-fm25_dir = "/fred/oz480/mcoughli/arXiv-2509.16313v1/synchrotron_shock_model"
-has_fm25 = os.path.isdir(fm25_dir)
-if has_fm25:
-    sys.path.insert(0, fm25_dir)
-    import thermalsyn_v2 as fm25
-    Fnu_fm25 = fm25.Fnu_of_nu(
-        bG_sh, n0_cmp, nu_compare, R_match,
-        Dlum=d_L_cm, z=z,
-        density_insteadof_massloss=True, radius_insteadof_time=True,
-        epsilon_T=eps_T_cmp, epsilon_B=eps_B_cmp, epsilon_e=eps_e_cmp, p=p_cmp,
-    )
-    Fnu_fm25_mJy = Fnu_fm25 / 1e-26
+# FM25 reference SED (bundled in third_party/fm25/)
+sys.path.insert(0, os.path.join(os.getcwd(), "third_party"))
+from fm25 import thermalsyn_v2 as fm25
+Fnu_fm25 = fm25.Fnu_of_nu(
+    bG_sh, n0_cmp, nu_compare, R_match,
+    Dlum=d_L_cm, z=z,
+    density_insteadof_massloss=True, radius_insteadof_time=True,
+    epsilon_T=eps_T_cmp, epsilon_B=eps_B_cmp, epsilon_e=eps_e_cmp, p=p_cmp,
+)
+Fnu_fm25_mJy = Fnu_fm25 / 1e-26
 
 # blastwave SED
 P_cmp = dict(
@@ -369,9 +366,8 @@ fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
 
 # Left: FM25 SED
 ax = axes[0]
-if has_fm25:
-    m = Fnu_fm25_mJy > 0
-    ax.loglog(nu_compare[m], Fnu_fm25_mJy[m], "-", color="#d62728", lw=2, label="FM25 thermalsyn_v2")
+m = Fnu_fm25_mJy > 0
+ax.loglog(nu_compare[m], Fnu_fm25_mJy[m], "-", color="#d62728", lw=2, label="FM25 thermalsyn_v2")
 ax.set_xlabel("Frequency (Hz)")
 ax.set_ylabel("Flux density (mJy)")
 ax.set_title(rf"FM25 ($\beta\Gamma_{{sh}}={bG_sh:.2f}$, $n={n0_cmp}$ cm$^{{-3}}$)")
@@ -383,9 +379,8 @@ ax = axes[1]
 m_bw = Fnu_bw > 0
 if m_bw.any():
     ax.loglog(nu_compare[m_bw], Fnu_bw[m_bw], "-", color="#1f77b4", lw=2, label="blastwave sync_thermal")
-if has_fm25:
-    m = Fnu_fm25_mJy > 0
-    ax.loglog(nu_compare[m], Fnu_fm25_mJy[m], "--", color="#d62728", lw=1.5, alpha=0.7, label="FM25 (reference)")
+m = Fnu_fm25_mJy > 0
+ax.loglog(nu_compare[m], Fnu_fm25_mJy[m], "--", color="#d62728", lw=1.5, alpha=0.7, label="FM25 (reference)")
 ax.set_xlabel("Frequency (Hz)")
 ax.set_ylabel("Flux density (mJy)")
 ax.set_title(rf"blastwave vs FM25 ($\beta\Gamma_{{fluid}}={bG_fluid:.2f}$)")

@@ -1,5 +1,7 @@
 # blastwave
 
+**Documentation**: [https://nuclear-multimessenger-astronomy.github.io/blastwave/](https://nuclear-multimessenger-astronomy.github.io/blastwave/)
+
 A high-performance relativistic blast wave simulator in Rust with Python bindings. Computes hydrodynamic evolution and multi-band synchrotron radiation for gamma-ray burst (GRB) afterglows, fast blue optical transients (FBOTs), neutron star merger afterglows, and other explosive transients.
 
 **blastwave** originated as a Rust reimplementation of [jetsimpy](https://github.com/haowang-astro/jetsimpy) (Wang et al. 2024) but has since grown into a standalone code incorporating physics and numerical methods from several afterglow modeling frameworks:
