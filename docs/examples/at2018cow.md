@@ -53,7 +53,7 @@ AT2018cow's radio emission is consistent with a sub-relativistic, quasi-spherica
 |-----------|-----------|------------|-------|
 | \(E_k\) | \(2 \times 10^{49}\) erg | \(5 \times 10^{49}\) erg | Kinetic energy |
 | \(\Gamma_0\) | 1.1 | 1.03 | Mildly relativistic |
-| \(n_0\) / \(A_*\) | 100 \(\mathrm{cm}^{-3}\) | 20 | Dense CSM |
+| \(n_0\) / \(A_*\) | 100 cm⁻³ | 20 | Dense CSM |
 | \(k\) | 0 | 2 | Density profile index |
 | \(\varepsilon_e\) | 0.1 | 0.12 | Electron energy fraction |
 | \(\varepsilon_B\) | 0.03 | 0.05 | Magnetic energy fraction |
