@@ -60,9 +60,9 @@ def test_pde_data_shapes(jet):
     assert theta.ndim == 1
     assert theta.shape[0] > 0
 
-    # y_pde shape should be [5, ntheta, nt]
+    # y_pde shape should be [6, ntheta, nt]
     assert y.ndim == 3
-    assert y.shape[0] == 5
+    assert y.shape[0] == 6
     assert y.shape[1] == theta.shape[0]
     assert y.shape[2] == t.shape[0]
 

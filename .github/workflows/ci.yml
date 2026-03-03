@@ -43,10 +43,11 @@ jobs:
       - name: Install blastwave Python package
         run: pip install .
 
-      - name: Install original jetsimpy
+      - name: Install VegasAfterglow
         run: |
-          git clone https://github.com/haowang-astro/jetsimpy.git /tmp/jetsimpy
-          pip install /tmp/jetsimpy
+          pip install scikit-build-core pybind11 setuptools-scm cmake ninja
+          git clone https://github.com/YihanWangAstro/VegasAfterglow.git /tmp/VegasAfterglow
+          pip install /tmp/VegasAfterglow
 
       - name: Run tests
         run: pytest tests/ -v
