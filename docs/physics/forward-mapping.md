@@ -21,14 +21,16 @@ This root-finding, combined with adaptive quadrature over \((\theta, \phi)\), do
 After the hydro solve, for each theta cell \(j\) and source time step \(k\):
 
 1. Compute observer-frame time:
-\[
-t_\mathrm{obs}[j][k] = t_\mathrm{src}[k] - \frac{R[j][k] \cos\theta_j}{c}
-\]
+
+    \[
+    t_\mathrm{obs}[j][k] = t_\mathrm{src}[k] - \frac{R[j][k] \cos\theta_j}{c}
+    \]
 
 2. Compute spectral luminosity per steradian:
-\[
-\frac{dL}{d\Omega}[j][k] = I(\nu_\mathrm{src}) \cdot R^2 \cdot \mathcal{D}^3
-\]
+
+    \[
+    \frac{dL}{d\Omega}[j][k] = I(\nu_\mathrm{src}) \cdot R^2 \cdot \mathcal{D}^3
+    \]
 
 where \(\mathcal{D}\) is the Doppler factor and \(I(\nu_\mathrm{src})\) is the specific intensity from the chosen radiation model.
 

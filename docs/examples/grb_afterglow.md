@@ -11,7 +11,7 @@ We use a typical long GRB afterglow in an ISM environment:
 | \(E_\mathrm{iso}\) | \(10^{53}\) erg | Isotropic equivalent energy |
 | \(\Gamma_0\) | 300 | Initial Lorentz factor |
 | \(\theta_c\) | 0.1 rad (5.7 deg) | Half-opening angle |
-| \(n_0\) | 1 cm\(^{-3}\) | ISM number density |
+| \(n_0\) | 1 \(\mathrm{cm}^{-3}\) | ISM number density |
 | \(\varepsilon_e\) | 0.1 | Electron energy fraction |
 | \(\varepsilon_B\) | 0.01 | Magnetic energy fraction |
 | \(p\) | 2.2 | Electron power-law index |

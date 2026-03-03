@@ -82,7 +82,7 @@ class Jet:
 |-----------|------|-------------|
 | `profiles` | tuple | `(theta, energy, lf)` arrays from a profile function |
 | `nwind` | float | Wind density scale: $n_\mathrm{wind}$ in $n(r) = n_\mathrm{wind}(r/10^{17})^{-k} + n_\mathrm{ISM}$ |
-| `nism` | float | ISM number density (cm$^{-3}$) |
+| `nism` | float | ISM number density (\(\mathrm{cm}^{-3}\)) |
 | `k` | float | CSM density power-law index. $k=0$ (ISM), $k=2$ (wind). Default 2.0 |
 | `spread_mode` | str | `"none"`, `"ode"`, or `"pde"`. Overrides `spread` flag |
 | `tail` | bool | Add isotropic low-energy tail (safety for off-axis). Set `False` for spherical |
@@ -176,8 +176,8 @@ All shortcut functions and `Jet.FluxDensity()` take a parameter dictionary `P`:
 | `lf` | --- | Initial Lorentz factor |
 | `theta_c` | rad | Jet core half-opening angle (not needed for `Spherical`) |
 | `s` | --- | Power-law structure index (only for `PowerLaw`) |
-| `A` | cm$^{-3}$ | Wind density scale ($n_\mathrm{wind}$) |
-| `n0` | cm$^{-3}$ | ISM number density ($n_\mathrm{ISM}$) |
+| `A` | \(\mathrm{cm}^{-3}\) | Wind density scale ($n_\mathrm{wind}$) |
+| `n0` | \(\mathrm{cm}^{-3}\) | ISM number density ($n_\mathrm{ISM}$) |
 | `eps_e` | --- | Electron energy fraction |
 | `eps_b` | --- | Magnetic energy fraction |
 | `p` | --- | Electron spectral index ($p > 2$) |

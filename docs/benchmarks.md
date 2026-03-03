@@ -13,7 +13,7 @@ Base parameters:
 | \(E_\mathrm{iso}\) | \(10^{53}\) erg |
 | \(\Gamma_0\) | 300 |
 | \(\theta_c\) | 0.1 rad |
-| \(n_0\) | 1.0 cm\(^{-3}\) |
+| \(n_0\) | 1.0 \(\mathrm{cm}^{-3}\) |
 | \(\varepsilon_e\) | 0.1 |
 | \(\varepsilon_B\) | 0.01 |
 | \(p\) | 2.3 |

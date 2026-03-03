@@ -86,7 +86,7 @@ flux_th = jet.FluxDensity(t, 3e9, P, model="sync_thermal")
 
 ### SED Comparison
 
-The left panel below shows the SED at 100 days for a mildly relativistic jet (\(\Gamma_0 = 10\), \(n_0 = 1\) cm\(^{-3}\)). The thermal component adds a pronounced bump around 1-10 GHz. The right panel demonstrates sensitivity to \(\varepsilon_T\): higher thermal efficiency shifts the bump to higher frequencies and increases its amplitude.
+The left panel below shows the SED at 100 days for a mildly relativistic jet (\(\Gamma_0 = 10\), \(n_0 = 1\) \(\mathrm{cm}^{-3}\)). The thermal component adds a pronounced bump around 1-10 GHz. The right panel demonstrates sensitivity to \(\varepsilon_T\): higher thermal efficiency shifts the bump to higher frequencies and increases its amplitude.
 
 ```python exec="on" html="1"
 import io
@@ -271,7 +271,7 @@ flux_fv = jet.FluxDensity(t, 3e9, P, model="sync_thermal")
 
 To validate the implementation, we compare blastwave's `sync_thermal` (full-volume mode) against the FM25 reference code (`thermalsyn_v2.py:Fnu_of_nu`) from Ferguson & Margalit (2025, arXiv:2509.16313).
 
-**Setup**: A spherical blast wave with \(E_\mathrm{iso} = 10^{52}\) erg and \(\Gamma_0 = 10\) in ISM (\(n_0 = 1\) cm\(^{-3}\)). We extract the fluid state at the time when \(\beta\Gamma_\mathrm{fluid} \approx 1\) and pass the corresponding shock velocity to FM25.
+**Setup**: A spherical blast wave with \(E_\mathrm{iso} = 10^{52}\) erg and \(\Gamma_0 = 10\) in ISM (\(n_0 = 1\) \(\mathrm{cm}^{-3}\)). We extract the fluid state at the time when \(\beta\Gamma_\mathrm{fluid} \approx 1\) and pass the corresponding shock velocity to FM25.
 
 ```python exec="on" html="1"
 import io

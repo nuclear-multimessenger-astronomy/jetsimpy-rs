@@ -34,7 +34,7 @@ Unless noted otherwise, examples on these pages use:
 | Isotropic energy | \(E_\mathrm{iso}\) | \(10^{52}\) erg |
 | Initial Lorentz factor | \(\Gamma_0\) | 300 |
 | Half-opening angle | \(\theta_c\) | 0.1 rad |
-| ISM density | \(n_0\) | 1.0 cm\(^{-3}\) |
+| ISM density | \(n_0\) | 1.0 \(\mathrm{cm}^{-3}\) |
 | Electron energy fraction | \(\varepsilon_e\) | 0.1 |
 | Magnetic energy fraction | \(\varepsilon_B\) | 0.01 |
 | Electron spectral index | \(p\) | 2.2 |

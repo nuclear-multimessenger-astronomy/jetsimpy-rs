@@ -95,7 +95,7 @@ ODE and PDE modes agree within ~0.1 dex for top-hat jets and ~0.13 dex for struc
 | 129 | 0.099s | 0.028s | 0.018s |
 | 257 | 0.398s | 0.054s | 0.034s |
 
-*Benchmarks: top-hat jet, on-axis, X-ray (10^18 Hz), 100 time points, single core.*
+*Benchmarks: top-hat jet, on-axis, X-ray (\(10^{18}\) Hz), 100 time points, single core.*
 
 ## Reverse shock
 

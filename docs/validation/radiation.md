@@ -30,7 +30,7 @@ SSC effects manifest in two ways:
 
 1. **IC cooling**: Even when SSC radiation is not computed explicitly, the Compton Y parameter enhances the electron cooling rate, lowering \(\gamma_c\) and steepening the synchrotron spectrum above \(\nu_c\). This is included in all models via the Thomson Y correction.
 
-2. **IC radiation**: The `sync_ssc` model additionally computes the upscattered photon spectrum, which dominates at hard X-ray and gamma-ray energies (\(\gtrsim\) MeV).
+2. **IC radiation**: The `sync_ssc` model additionally computes the upscattered photon spectrum, which dominates at hard X-ray and gamma-ray energies (\(\gtrsim 1\) MeV).
 
 At 1 keV the synchrotron component dominates, so the `sync_ssa_smooth` and `sync_ssc` models give similar results. At 1 MeV the IC component takes over, producing significantly higher flux.
 

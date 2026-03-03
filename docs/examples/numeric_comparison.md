@@ -22,7 +22,7 @@ We use a standard on-axis top-hat jet:
 | \(E_\mathrm{iso}\) | \(10^{53}\) erg | Isotropic-equivalent energy |
 | \(\Gamma_0\) | 300 | Initial Lorentz factor |
 | \(\theta_c\) | 0.1 rad | Jet half-opening angle |
-| \(n_0\) | 1.0 cm\(^{-3}\) | ISM density |
+| \(n_0\) | 1.0 \(\mathrm{cm}^{-3}\) | ISM density |
 | \(\varepsilon_e\) | 0.1 | Electron energy fraction |
 | \(\varepsilon_B\) | 0.01 | Magnetic energy fraction |
 | \(p\) | 2.3 | Electron spectral index |

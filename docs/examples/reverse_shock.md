@@ -122,7 +122,7 @@ plt.savefig('reverse_shock.png', dpi=150)
 
 ## Discussion
 
-**Radio (3 GHz)**: The reverse shock produces a bright early flash that peaks within the first day, then fades as the RS-heated electrons cool. The forward shock rises more gradually and dominates after $\sim$1 day. At late times ($\gtrsim 10$ days) the light curve is entirely FS-dominated.
+**Radio (3 GHz)**: The reverse shock produces a bright early flash that peaks within the first day, then fades as the RS-heated electrons cool. The forward shock rises more gradually and dominates after \(\sim 1\) day. At late times (\(\gtrsim 10\) days) the light curve is entirely FS-dominated.
 
 **Optical (R-band)**: The RS optical flash is even more pronounced relative to the FS at early times, since the RS electrons are initially very energetic. The optical RS fades faster than the radio RS due to stronger synchrotron cooling at higher frequencies.
 
