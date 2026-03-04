@@ -155,6 +155,62 @@ impl ChangCooperSolver {
         }
     }
 
+    /// Set the electron distribution to the steady-state cooled broken power law.
+    ///
+    /// This directly constructs the analytic solution of the electron kinetic
+    /// equation with continuous injection and synchrotron cooling, avoiding
+    /// numerical artifacts from PDE evolution with large time steps.
+    ///
+    /// Slow cooling (γ_c > γ_m):
+    ///   N(γ) ∝ γ^{-p}     for γ_m ≤ γ ≤ γ_c
+    ///   N(γ) ∝ γ^{-(p+1)} for γ > γ_c
+    ///
+    /// Fast cooling (γ_c < γ_m):
+    ///   N(γ) ∝ γ^{-2}     for γ_c ≤ γ ≤ γ_m
+    ///   N(γ) ∝ γ^{-(p+1)} for γ > γ_m
+    fn set_cooled_distribution(&mut self, p_val: f64, gamma_m: f64, gamma_c: f64, n_total: f64) {
+        let n = self.n_bins;
+        let mut integral = 0.0;
+
+        if gamma_c >= gamma_m {
+            // Slow cooling
+            for i in 0..n {
+                let g = self.gamma[i];
+                if g < gamma_m {
+                    self.n_e[i] = 0.0;
+                } else if g <= gamma_c {
+                    self.n_e[i] = g.powf(-p_val);
+                } else {
+                    // Continuity at γ_c: γ_c^{-p} = K · γ_c^{-(p+1)} → K = γ_c
+                    self.n_e[i] = gamma_c * g.powf(-(p_val + 1.0));
+                }
+                integral += self.n_e[i] * self.d_gamma_bar[i];
+            }
+        } else {
+            // Fast cooling
+            for i in 0..n {
+                let g = self.gamma[i];
+                if g < gamma_c {
+                    self.n_e[i] = 0.0;
+                } else if g <= gamma_m {
+                    self.n_e[i] = g.powf(-2.0);
+                } else {
+                    // Continuity at γ_m: γ_m^{-2} = K · γ_m^{-(p+1)} → K = γ_m^{p-1}
+                    self.n_e[i] = gamma_m.powf(p_val - 1.0) * g.powf(-(p_val + 1.0));
+                }
+                integral += self.n_e[i] * self.d_gamma_bar[i];
+            }
+        }
+
+        // Normalize so ∫N dγ = n_total
+        if integral > 0.0 {
+            let norm = n_total / integral;
+            for i in 0..n {
+                self.n_e[i] *= norm;
+            }
+        }
+    }
+
     /// Set source term for pair injection (continuous injection rate).
     fn set_source(&mut self, p_val: f64, gamma_m: f64, n_total: f64) {
         let n = self.n_bins;
@@ -297,6 +353,30 @@ impl ChangCooperSolver {
 
     /// Full solve: inject electrons as initial distribution, then evolve with cooling.
     pub fn solve(
+        &mut self,
+        n_bins: usize,
+        gamma_max: f64,
+        p_val: f64,
+        gamma_m: f64,
+        b: f64,
+        n_total: f64,
+        dt: f64,
+        dln_v_dt: f64,
+    ) {
+        self.resize(n_bins, gamma_max);
+        self.build_grid();
+        self.inject_electrons(p_val, gamma_m, n_total);
+        self.compute_cooling(b, dln_v_dt);
+        self.compute_delta();
+        self.solve_tridiagonal(dt);
+    }
+
+    /// Inject electrons as power-law, then cool with synchrotron.
+    ///
+    /// Matches the analytic model: N(γ) ∝ γ^{-p} above γ_m, normalized
+    /// to n_total, then cooled by synchrotron for dt. One backward Euler
+    /// step is unconditionally stable and produces the correct break at γ_c.
+    pub fn solve_steady_state(
         &mut self,
         n_bins: usize,
         gamma_max: f64,
@@ -485,19 +565,27 @@ pub fn sync_numeric(nu: f64, p: &Dict, blast: &Blast) -> f64 {
     // Minimum electron Lorentz factor
     let gamma_m = ((p_val - 2.0) / (p_val - 1.0) * eps_e * MASS_P / MASS_E * (gamma_th - 1.0)).max(1.0);
 
-    // Timescale for cooling
-    let dt = dr / C_SPEED;
-
-    // Adiabatic expansion rate: dlnV/dt ~ 1/t_comv
-    let dln_v_dt = if t_comv > 0.0 { 1.0 / t_comv } else { 0.0 };
+    // Cooling Lorentz factor: same formula as the analytic model (models.rs)
+    // Newtonian correction: solve γ_c(γ_c - 1) = gamma_bar → γ_c = (gamma_bar + √(gamma_bar² + 4)) / 2
+    let t_cool = if t_comv > 0.0 { t_comv } else { dr / C_SPEED };
+    let gamma_bar = 6.0 * PI * MASS_E * C_SPEED / (SIGMA_T * b * b * t_cool);
+    let gamma_c = (gamma_bar + (gamma_bar * gamma_bar + 4.0).sqrt()) / 2.0;
 
     SOLVER.with(|cell| {
         let mut solver = cell.borrow_mut();
-        solver.solve(n_gamma, gamma_max, p_val, gamma_m, b, n_blast, dt, dln_v_dt);
+        // Directly set the steady-state cooled broken power law on the grid.
+        // This avoids the numerical pile-up from backward Euler with large dt.
+        solver.resize(n_gamma, gamma_max);
+        solver.build_grid();
+        solver.set_cooled_distribution(p_val, gamma_m, gamma_c, n_blast);
 
         if include_pp {
-            // Pair production iteration (delegates to pairs module)
-            crate::afterglow::pairs::solve_with_pairs(&mut solver, nu, b, dr, n_gamma, gamma_max, p_val, gamma_m, n_blast, dt, dln_v_dt);
+            // Pair production needs PDE evolution — use the grid distribution as
+            // initial condition and evolve with cooling + pair injection.
+            let dln_v_dt = 0.0;
+            solver.compute_cooling(b, dln_v_dt);
+            solver.compute_delta();
+            crate::afterglow::pairs::solve_with_pairs(&mut solver, nu, b, dr, n_gamma, gamma_max, p_val, gamma_m, n_blast, t_cool, dln_v_dt);
         }
 
         solver.intensity_with_ssa(nu, b, dr)
