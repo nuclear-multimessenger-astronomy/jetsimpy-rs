@@ -51,6 +51,7 @@ nav:
     - GW170817: examples/gw170817.md
     - Reverse Shock: examples/reverse_shock.md
     - Shell Collisions: examples/shell_collision.md
+    - GRB 250129A: examples/grb250129a.md
     - Numeric Model: examples/numeric_comparison.md
     - Physics Showcase: examples/grb_afterglow.md
   - Validation:
